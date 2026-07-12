@@ -132,7 +132,15 @@ python -m crawler_machine prospecting enrich-samples-home \
   output/prospecting/20250712_120000/candidates.yaml
 ```
 
-Esse comando **não consome API de busca externa**, mas é menos assertivo que a versão com Google Custom Search: ele pode retornar listagens ou formulários se esses forem os primeiros links relevantes da home. Use-o como primeira tentativa barata e revise o resultado.
+O comando gera `candidates.enriched.home.yaml` ao lado do arquivo de entrada. Ele aplica filtros para descartar URLs óbvias de listagens (`/imoveis/`, `/filtro/`, `?pagina=`, etc.) e formulários (`/cadastrar-imovel`, `/encomenda_imovel`, `/anuncie-seu-imovel`, etc.). Quando a home só contém esses tipos de link, o comando usa a URL do meio da lista como fallback — nesse caso o resultado pode ser uma listagem e deve ser revisado manualmente.
+
+Esse comando **não consome API de busca externa**, mas é menos assertivo que a versão com Google Custom Search. Use-o como primeira tentativa barata e revise o resultado.
+
+Flags úteis:
+
+- `--dry-run`: mostra as home pages que seriam visitadas.
+- `--skip-existing`: preserva `sample_url` já preenchidas em uma execução anterior.
+- `--out <caminho>`: define um caminho de saída diferente.
 
 Exemplo de fluxo completo:
 
@@ -146,7 +154,7 @@ python -m crawler_machine prospecting enrich-samples-home \
 
 # 3. Batch
 python -m crawler_machine clone-das-sombras \
-  output/prospecting/20250712_120000/candidates.enriched.yaml
+  output/prospecting/20250712_120000/candidates.enriched.home.yaml
 ```
 
 ### Etapas isoladas

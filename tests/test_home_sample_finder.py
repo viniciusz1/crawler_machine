@@ -256,3 +256,37 @@ def test_returns_none_when_only_home_and_external_links():
     url = finder.find(_candidate())
 
     assert url is None
+
+
+def test_filters_anuncie_page():
+    html = """
+    <html>
+      <body>
+        <a href="/anuncie-seu-imovel">Anuncie</a>
+        <a href="/imovel/casa-jaragua-do-sul-7">Casa 7</a>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url == "https://imob-x.com.br/imovel/casa-jaragua-do-sul-7"
+
+
+def test_filters_pagina_with_ampersand():
+    html = """
+    <html>
+      <body>
+        <a href="/venda/apartamento/jaragua-do-sul/centro/?&pagina=1">Listagem</a>
+        <a href="/imovel/casa-jaragua-do-sul-7">Casa 7</a>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url == "https://imob-x.com.br/imovel/casa-jaragua-do-sul-7"

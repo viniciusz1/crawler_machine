@@ -30,12 +30,20 @@ class HomeSampleFinder:
     _LISTING_PATTERNS = [
         r"/imoveis/",
         r"/filtro/",
-        r"/cadastrar",
-        r"/encomenda",
+        r"cadastr",
+        r"encomenda",
+        r"solicite",
+        r"anuncie",
         r"/busca",
         r"dormitorios-",
         r"estagio-",
+        r"todos-os-",
+        r"todas-as-",
         r"\?ordem=",
+        r"pagina=",
+        r"ordenacao=",
+        r"valorminimo=",
+        r"valormaximo=",
         r"/imoveis\?",
     ]
     _HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
