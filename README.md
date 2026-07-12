@@ -102,7 +102,41 @@ python -m crawler_machine prospecting find \
   --max-per-city 30
 ```
 
-A UF é obrigatória (para desambiguar homônimos). O resultado é um **YAML de candidatos para revisão humana** em `output/prospecting/candidatos_<timestamp>.yaml`, com cada entrada classificada como `candidate` ou `rejected` (`aggregator` / `no_website` / `duplicate_domain`). Para incluir uma imobiliária no pipeline, revise os `candidate`, preencha `sample_url` e adicione-os ao YAML do `clone-das-sombras`.
+A UF é obrigatória (para desambiguar homônimos). O resultado é um **YAML de candidatos para revisão humana** em `output/prospecting/candidatos_<timestamp>.yaml`, com cada entrada classificada como `candidate` ou `rejected` (`aggregator` / `no_website` / `duplicate_domain`).
+
+### Enriquecimento automático de sample_url
+
+O comando `prospecting enrich-samples` busca automaticamente uma URL de exemplo (`sample_url`) para cada candidato aprovado usando a **Google Custom Search API**. A busca prefere apartamentos, depois geminados e por último casas.
+
+Requer as variáveis `GOOGLE_CUSTOM_SEARCH_KEY` e `GOOGLE_CUSTOM_SEARCH_CX` no `.env`.
+
+```bash
+python -m crawler_machine prospecting enrich-samples \
+  output/prospecting/20250712_120000/candidates.yaml
+```
+
+O comando gera `candidates.enriched.yaml` ao lado do arquivo de entrada, no formato de lista esperado pelo `clone-das-sombras`. Candidatos sem resultado são incluídos com `sample_url: null` para preenchimento manual.
+
+Flags úteis:
+
+- `--dry-run`: mostra as queries que seriam executadas sem gastar crédito da API.
+- `--skip-existing`: preserva `sample_url` já preenchidas em uma execução anterior.
+- `--out <caminho>`: define um caminho de saída diferente.
+
+Exemplo de fluxo completo:
+
+```bash
+# 1. Prospecção
+python -m crawler_machine prospecting find --cities "Jaraguá do Sul,SC" --max-per-city 30
+
+# 2. Enriquecimento automático de sample_url
+python -m crawler_machine prospecting enrich-samples \
+  output/prospecting/20250712_120000/candidates.yaml
+
+# 3. Batch
+python -m crawler_machine clone-das-sombras \
+  output/prospecting/20250712_120000/candidates.enriched.yaml
+```
 
 ### Etapas isoladas
 
