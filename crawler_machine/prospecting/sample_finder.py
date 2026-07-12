@@ -106,3 +106,91 @@ class GoogleCustomSearchGateway(SearchGateway):
     def _error_message(payload: dict[str, Any]) -> str:
         error = payload.get("error") or {}
         return error.get("message") or str(payload)
+
+
+from dataclasses import dataclass
+
+from crawler_machine.prospecting.models import Candidate
+
+
+@dataclass(frozen=True)
+class EnrichedCandidate:
+    """Candidato enriquecido com uma ``sample_url`` descoberta."""
+
+    base_url: str
+    source_name: str
+    sample_url: str | None
+
+
+class SampleEnricher:
+    """Enriquece candidatos com ``sample_url`` via busca por tipo de imóvel.
+
+    Para cada candidato, tenta uma cadeia de queries:
+      - tipos: apartamento → geminado → casa
+      - variações: com cidade/UF → sem cidade/UF → com "venda"
+
+    A primeira URL retornada que não seja a home do site vira ``sample_url``.
+    Se nada for encontrado, o candidato é emitido com ``sample_url: None``.
+    """
+
+    _PROPERTY_TYPES = ["apartamento", "geminado", "casa"]
+    _DEFAULT_NUM_RESULTS = 5
+
+    def __init__(
+        self,
+        gateway: SearchGateway,
+        sleep: Callable[[float], None] = time.sleep,
+        delay: float = 1.0,
+    ) -> None:
+        self._gateway = gateway
+        self._sleep = sleep
+        self._delay = delay
+
+    def enrich(self, candidates: list[Candidate]) -> list[EnrichedCandidate]:
+        """Enriquece a lista de candidatos com ``sample_url``."""
+        self._ensure_unique_source_names(candidates)
+
+        enriched: list[EnrichedCandidate] = []
+        for candidate in candidates:
+            sample_url = self._find_sample(candidate)
+            enriched.append(
+                EnrichedCandidate(
+                    base_url=candidate.base_url or "",
+                    source_name=candidate.source_name or "",
+                    sample_url=sample_url,
+                )
+            )
+        return enriched
+
+    @staticmethod
+    def _ensure_unique_source_names(candidates: list[Candidate]) -> None:
+        seen: set[str] = set()
+        for candidate in candidates:
+            source_name = candidate.source_name or ""
+            if source_name in seen:
+                raise ValueError(f"source_name duplicado: {source_name}")
+            seen.add(source_name)
+
+    def _find_sample(self, candidate: Candidate) -> str | None:
+        base_url = candidate.base_url or ""
+        city = candidate.city
+        state = candidate.state
+
+        for property_type in self._PROPERTY_TYPES:
+            for query in self._build_queries(base_url, property_type, city, state):
+                urls = self._gateway.search(query, num_results=self._DEFAULT_NUM_RESULTS)
+                self._sleep(self._delay)
+                for url in urls:
+                    if url.rstrip("/") != base_url.rstrip("/"):
+                        return url
+        return None
+
+    @staticmethod
+    def _build_queries(
+        base_url: str, property_type: str, city: str, state: str
+    ) -> list[str]:
+        return [
+            f'site:{base_url} "{property_type}" "{city}" "{state}"',
+            f'site:{base_url} "{property_type}"',
+            f'site:{base_url} "{property_type}" "venda"',
+        ]
