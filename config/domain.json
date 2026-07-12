@@ -1,0 +1,184 @@
+{
+  "llm": {
+    "provider": "deepseek/deepseek-v4-pro",
+    "base_url": "https://api.deepseek.com",
+    "api_key_env": "DEEPSEEK_API_KEY"
+  },
+  "crawler": {
+    "page_timeout": 60000,
+    "max_concurrent": 10,
+    "chunk_size": 50,
+    "chunk_delay": 1.0,
+    "headless": true,
+    "wait_until": "domcontentloaded",
+    "enable_stealth": true,
+    "cache_mode": "ENABLED",
+    "mean_delay": 0.5,
+    "max_range": 1.0,
+    "retry_attempts": 3,
+    "retry_base_delay": 2.0,
+    "enable_fit_markdown_regex": true,
+    "enable_fit_markdown_llm": false,
+    "enable_llm_fallback": false
+  },
+  "discovery": {
+    "max_urls": 5000,
+    "listing_patterns": [
+      "/imovel/",
+      "\\/(comprar|alugar|vender)\\/",
+      "\\/(apartamento|casa|terreno|sobrado|sala-comercial|loft|chacara|rural)-"
+    ]
+  },
+  "fields": [
+    {
+      "name": "url",
+      "description": "URL da página do imóvel",
+      "coerce": "string"
+    },
+    {
+      "name": "imagem",
+      "description": "URL da imagem principal do imóvel",
+      "coerce": "string"
+    },
+    {
+      "name": "tipo_imovel",
+      "description": "Tipo do imóvel (apartamento, casa, terreno, sala comercial)",
+      "coerce": "string"
+    },
+    {
+      "name": "quartos",
+      "description": "Número de quartos",
+      "coerce": "int"
+    },
+    {
+      "name": "sala",
+      "description": "Número de salas",
+      "coerce": "int"
+    },
+    {
+      "name": "banheiros",
+      "description": "Número de banheiros",
+      "coerce": "int"
+    },
+    {
+      "name": "suites",
+      "description": "Número de suítes",
+      "coerce": "int"
+    },
+    {
+      "name": "vagas",
+      "description": "Número de vagas de garagem",
+      "coerce": "int"
+    },
+    {
+      "name": "ano",
+      "description": "Ano de construção",
+      "coerce": "int"
+    },
+    {
+      "name": "valor",
+      "description": "Valor do imóvel",
+      "coerce": "currency"
+    },
+    {
+      "name": "area_privada",
+      "description": "Área privada em metros quadrados",
+      "coerce": "float"
+    },
+    {
+      "name": "area_util",
+      "description": "Área útil em metros quadrados",
+      "coerce": "float"
+    },
+    {
+      "name": "detalhes",
+      "description": "Descrição detalhada do imóvel",
+      "coerce": "string"
+    },
+    {
+      "name": "bairro",
+      "description": "Bairro onde o imóvel está localizado",
+      "coerce": "string"
+    },
+    {
+      "name": "cidade",
+      "description": "Cidade onde o imóvel está localizado",
+      "coerce": "string"
+    },
+    {
+      "name": "piscina",
+      "description": "Indica se o imóvel possui piscina",
+      "coerce": "boolean"
+    },
+    {
+      "name": "churrasqueira",
+      "description": "Indica se o imóvel possui churrasqueira",
+      "coerce": "boolean"
+    },
+    {
+      "name": "academia",
+      "description": "Indica se o imóvel ou condomínio possui academia",
+      "coerce": "boolean"
+    },
+    {
+      "name": "salao_festas",
+      "description": "Indica se o imóvel ou condomínio possui salão de festas",
+      "coerce": "boolean"
+    },
+    {
+      "name": "playground",
+      "description": "Indica se o imóvel ou condomínio possui playground",
+      "coerce": "boolean"
+    },
+    {
+      "name": "sacada",
+      "description": "Indica se o imóvel possui sacada",
+      "coerce": "boolean"
+    },
+    {
+      "name": "mobiliado",
+      "description": "Indica se o imóvel está mobiliado",
+      "coerce": "boolean"
+    },
+    {
+      "name": "ar_condicionado",
+      "description": "Indica se o imóvel possui ar condicionado",
+      "coerce": "boolean"
+    },
+    {
+      "name": "lavanderia",
+      "description": "Indica se o imóvel possui lavanderia",
+      "coerce": "boolean"
+    },
+    {
+      "name": "escritorio",
+      "description": "Indica se o imóvel possui escritório",
+      "coerce": "boolean"
+    },
+    {
+      "name": "closet",
+      "description": "Indica se o imóvel possui closet",
+      "coerce": "boolean"
+    },
+    {
+      "name": "elevador",
+      "description": "Indica se o imóvel ou condomínio possui elevador",
+      "coerce": "boolean"
+    },
+    {
+      "name": "portaria_24h",
+      "description": "Indica se o imóvel ou condomínio possui portaria 24h",
+      "coerce": "boolean"
+    },
+    {
+      "name": "aceita_permuta",
+      "description": "Indica se o imóvel aceita permuta",
+      "coerce": "boolean"
+    },
+    {
+      "name": "financiamento",
+      "description": "Indica se o imóvel aceita financiamento",
+      "coerce": "boolean"
+    }
+  ]
+}

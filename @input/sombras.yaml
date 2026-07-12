@@ -1,0 +1,91 @@
+- base_url: https://singular.imb.br/
+  source_name: singular
+  sample_url: https://singular.imb.br/imovel/venda/apartamentos/jaragua-do-sul/sao-luis/490
+
+- base_url: https://dualimobiliaria.com.br/
+  source_name: dual-imobiliaria
+  sample_url: https://dualimobiliaria.com.br/imovel/geminado-com-18654m2-a-venda-no-bairro-ilha-da-figueira-em-jaragua-do-sul-1903
+
+- base_url: https://imobiliariaurbana.com.br/
+  source_name: imobiliaria-urbana
+  sample_url: https://imobiliariaurbana.com.br/imovel/jaragua-do-sul/nova-brasilia/apartamento-a-venda-no-residencial-brisa-do-vale-em-nova-brasilia-lancamento-em-jaragua-do-sul-2004
+
+- base_url: https://www.imobiliariabrandao.com.br/
+  source_name: brandao
+  sample_url: https://www.imobiliariabrandao.com.br/imovel/venda/casa/jaragua-do-sul-sc/amizade/geminado-a-venda--com-130-m2-bairro-amizade---jaragua-do-sul---sc/1105629
+
+- base_url: https://www.poderimoveis.com/
+  source_name: poder-imoveis
+  sample_url: https://www.poderimoveis.com/imoveis/detalhes-do-imovel/ref/-Apartamento-Jaragua-do-sul-Vila-nova-3-quarto/tpr/A/fic/1759304-pagina-24
+
+- base_url: https://imbsmart.com.br/
+  source_name: smart
+  sample_url: https://imbsmart.com.br/apartamento-novo-a-venda-02suite-01dormitorio
+
+- base_url: https://chaleimobiliaria.com.br/
+  source_name: chale
+  sample_url: https://chaleimobiliaria.com.br/imovel/casa-amizade-jaragua-do-sul-sc-4-quartos-248m2-15411
+
+- base_url: https://imoveiscidade.com.br/
+  source_name: cidade-imoveis
+  sample_url: https://imoveiscidade.com.br/imovel/casa-sao-luis-jaragua-do-sul-sc-3-quartos-136.79m2-CA0517
+
+- base_url: https://www.imobiliariaconexaoimoveis.com.br/
+  source_name: conexao-imoveis
+  sample_url: https://www.imobiliariaconexaoimoveis.com.br/imovel/apartamento-para-venda-na-ilha-da-figueira-jaragua-do-sul/1147
+
+- base_url: https://d2imoveis.com/
+  source_name: d2-imoveis
+  sample_url: https://d2imoveis.com/1473
+
+- base_url: https://donnajaragua.com.br/
+  source_name: donna
+  sample_url: https://donnajaragua.com.br/imovel/1566/comprar/apartamento/guaramirim/corticeira
+
+- base_url: https://www.eccorretoresdeimoveis.com.br/
+  source_name: ec-corretores
+  sample_url: https://www.eccorretoresdeimoveis.com.br/imovel/4213363/apartamento-venda-jaragua-do-sul-sc-jaragua-esquerdo
+
+- base_url: https://eskalaimoveis.com.br/
+  source_name: eskala-imoveis
+  sample_url: https://eskalaimoveis.com.br/casa-geminada-2-quartos-tres-rios-do-norte-jaragua-do-sul
+
+- base_url: https://fraitagimoveis.com.br/
+  source_name: fraitagi
+  sample_url: https://fraitagimoveis.com.br/imoveis/venda/schroeder/rio-hern/-/casa/ca705/imovel/2344562
+
+- base_url: https://imobiliariaguaraimoveis.com.br/
+  source_name: guara-imoveis
+  sample_url: https://imobiliariaguaraimoveis.com.br/imovel-venda-em-bananal-do-sul-guaramirim
+
+- base_url: https://www.imoveisplaneta.com.br/
+  source_name: imoveis-planeta
+  sample_url: https://www.imoveisplaneta.com.br/imovel/1950/comprar/casa/jaragua-do-sul/chico-de-paulo
+
+- base_url: https://krauseimobiliaria.com.br/
+  source_name: krause
+  sample_url: https://krauseimobiliaria.com.br/imovel/casa-a-venda-5-quartos-jaragua-esquerdo-jaragua-do-sul-sc-280m2-id-745
+
+- base_url: https://m2jaragua.com.br/
+  source_name: m2
+  sample_url: https://m2jaragua.com.br/imovel/1652/comprar/apartamento/jaragua-do-sul/czerniewicz
+
+- base_url: https://macroimoveis.com/
+  source_name: macro
+  sample_url: https://macroimoveis.com/2470
+
+- base_url: https://megaempreendimentos.com/
+  source_name: mega
+  sample_url: https://megaempreendimentos.com/apartamento-a-venda-vila-baependi-tauri-easy-club
+
+- base_url: https://www.imobiliariapradi.com.br/
+  source_name: pradi
+  sample_url: https://www.imobiliariapradi.com.br/imovel/apartamento-jaragua-do-sul-3-quartos-128-m/AP0876-PRBD
+
+- base_url: https://splendoreimoveis.com.br/
+  source_name: splendore
+  sample_url: https://splendoreimoveis.com.br/imovel/890/comprar/apartamento/jaragua-do-sul/santa-luzia
+
+- base_url: https://betelimoveis.imb.br/
+  source_name: betel
+  sample_url: https://betelimoveis.imb.br/imovel/apartamento-a-venda-no-bairro-vila-verde-em-caxias-do-sul-rs/700
