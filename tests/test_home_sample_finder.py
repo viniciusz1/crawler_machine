@@ -221,13 +221,13 @@ def test_filters_dormitorios_filter():
     assert url == "https://imob-x.com.br/imovel/casa-jaragua-do-sul-7"
 
 
-def test_falls_back_to_middle_url_when_all_are_listings():
+def test_falls_back_to_middle_url_when_all_are_listings_but_have_property_signal():
     html = """
     <html>
       <body>
         <a href="/imoveis/apartamento">Listagem 1</a>
         <a href="/imoveis/casa">Listagem 2</a>
-        <a href="/imoveis/geminado">Listagem 3 (meio)</a>
+        <a href="/imovel/geminado">Imóvel geminado (meio)</a>
         <a href="/imoveis/casa-de-condominio">Listagem 4</a>
         <a href="/imoveis/apartamento-luxo">Listagem 5</a>
       </body>
@@ -238,7 +238,25 @@ def test_falls_back_to_middle_url_when_all_are_listings():
 
     url = finder.find(_candidate())
 
-    assert url == "https://imob-x.com.br/imoveis/geminado"
+    assert url == "https://imob-x.com.br/imovel/geminado"
+
+
+def test_returns_none_when_all_urls_are_pure_listings_or_forms():
+    html = """
+    <html>
+      <body>
+        <a href="/imoveis/apartamento">Listagem 1</a>
+        <a href="/imoveis/casa">Listagem 2</a>
+        <a href="/encomende-seu-imovel">Encomenda</a>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url is None
 
 
 def test_returns_none_when_only_home_and_external_links():
@@ -290,6 +308,64 @@ def test_filters_pagina_with_ampersand():
     url = finder.find(_candidate())
 
     assert url == "https://imob-x.com.br/imovel/casa-jaragua-do-sul-7"
+
+
+def test_extracts_link_from_json_attribute():
+    html = r"""
+    <html>
+      <body>
+        <script id="__NEXT_DATA__" type="application/json">
+          {"props":{"pageProps":{"items":[
+            {"link":"/imovel/apartamento-jaragua-do-sul-42"},
+            {"link":"/contato"}
+          ]}}}
+        </script>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url == "https://imob-x.com.br/imovel/apartamento-jaragua-do-sul-42"
+
+
+def test_recognizes_query_string_property_id():
+    html = """
+    <html>
+      <body>
+        <a href="/detalhes.php?imovel=1012">Imóvel 1012</a>
+        <a href="/contato">Contato</a>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url == "https://imob-x.com.br/detalhes.php?imovel=1012"
+
+
+def test_recognizes_detalhes_php_imovel():
+    html = """
+    <html>
+      <body>
+        <a href="/detalhes_loc.php?imovel=1012">Locação</a>
+        <a href="/detalhes_vd.php?imovel=9003">Venda</a>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url in {
+        "https://imob-x.com.br/detalhes_loc.php?imovel=1012",
+        "https://imob-x.com.br/detalhes_vd.php?imovel=9003",
+    }
 
 
 def test_extracts_href_without_quotes():

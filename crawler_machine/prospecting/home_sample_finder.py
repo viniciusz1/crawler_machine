@@ -26,12 +26,13 @@ class HomeSampleFinder:
         r"apartamento",
         r"casa",
         r"geminado",
+        r"detalhes_[a-z]+\.php\?imovel=",
     ]
     _LISTING_PATTERNS = [
         r"/imoveis/",
         r"/filtro/",
         r"cadastr",
-        r"encomenda",
+        r"encomend",
         r"solicite",
         r"anuncie",
         r"/busca",
@@ -45,8 +46,13 @@ class HomeSampleFinder:
         r"valorminimo=",
         r"valormaximo=",
         r"/imoveis\?",
+        r"tipo\[",
+        r"imoveis-para-",
+        r"cidade=.+tipo=",
+        r"tipo=.+cidade=",
     ]
     _HREF_RE = re.compile(r'href\s*=\s*["\']?([^"\'\s>]+)', re.IGNORECASE)
+    _JSON_LINK_RE = re.compile(r'["\']link["\']\s*:\s*["\']([^"\']+)["\']', re.IGNORECASE)
 
     def __init__(
         self,
@@ -56,7 +62,19 @@ class HomeSampleFinder:
 
     @staticmethod
     def _build_default_requester() -> HomeRequester:
-        client = httpx.Client(timeout=30.0, follow_redirects=True)
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                "image/webp,*/*;q=0.8"
+            ),
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        }
+        client = httpx.Client(timeout=30.0, follow_redirects=True, headers=headers)
 
         def requester(url: str) -> httpx.Response:
             return client.get(url)
@@ -85,12 +103,33 @@ class HomeSampleFinder:
             candidates.sort(key=self._score_url, reverse=True)
             return candidates[0]
 
-        # Fallback: se todas as URLs parecem listagens/formulários,
+        # Fallback: se todas as URLs parecem listagens/formulários, mas alguma
+        # delas indica um imóvel individual (path com "imovel" ou ID numérico),
         # assume que a home lista imóveis em destaque e pega a do meio.
-        return all_urls[len(all_urls) // 2]
+        if any(self._has_property_signal(url) for url in all_urls):
+            return all_urls[len(all_urls) // 2]
+
+        return None
+
+    @staticmethod
+    def _has_property_signal(url: str) -> bool:
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        query = parsed.query or ""
+        # "imovel" como segmento próprio do path (ex: /imovel/... ou /imovel),
+        # não como substring de formulários (ex: /encomende-seu-imovel).
+        if re.search(r"(^|/)imovel(/|$)", path, re.IGNORECASE):
+            return True
+        if re.search(r"imovel=\d+", query, re.IGNORECASE):
+            return True
+        if re.search(r"/\d+(/|$)", path):
+            return True
+        return False
 
     def _extract_urls(self, html: str, base_url: str) -> list[str]:
         raw_links = self._HREF_RE.findall(html)
+        # Alguns sites (Next.js, SPA) embebem links em JSON dentro do HTML.
+        raw_links.extend(self._JSON_LINK_RE.findall(html))
         found: list[str] = []
         base_domain = self._domain(base_url)
 
@@ -104,7 +143,7 @@ class HomeSampleFinder:
             path = parsed.path or "/"
             if self._is_home(path, base_url):
                 continue
-            if self._looks_like_property(path):
+            if self._looks_like_property(path, parsed.query):
                 found.append(absolute)
 
         return found
@@ -119,9 +158,11 @@ class HomeSampleFinder:
         base_path = urlparse(base_url).path.rstrip("/")
         return normalized_path == base_path or normalized_path == ""
 
-    def _looks_like_property(self, path: str) -> bool:
-        lower = path.lower()
-        return any(re.search(pattern, lower) for pattern in self._PROPERTY_PATTERNS)
+    def _looks_like_property(self, path: str, query: str = "") -> bool:
+        lower_path = path.lower()
+        lower_query = query.lower()
+        target = f"{lower_path}?{lower_query}" if lower_query else lower_path
+        return any(re.search(pattern, target) for pattern in self._PROPERTY_PATTERNS)
 
     def _is_likely_listing_or_form(self, url: str) -> bool:
         lower = url.lower()
@@ -131,6 +172,7 @@ class HomeSampleFinder:
     def _score_url(url: str) -> int:
         parsed = urlparse(url)
         path = parsed.path or "/"
+        query = parsed.query or ""
         score = 0
         # Profundidade do path.
         segments = [s for s in path.split("/") if s]
@@ -138,6 +180,9 @@ class HomeSampleFinder:
         # Presença de número no último segmento (provável ID).
         if segments and re.search(r"\d", segments[-1]):
             score += 20
+        # Presença de número na query string (ex: ?imovel=1234).
+        if re.search(r"=\d+", query):
+            score += 15
         # Termos fortes no path.
         for term in ["apartamento", "casa", "geminado"]:
             if term in path.lower():
