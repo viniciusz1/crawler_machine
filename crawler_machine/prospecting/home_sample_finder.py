@@ -46,7 +46,7 @@ class HomeSampleFinder:
         r"valormaximo=",
         r"/imoveis\?",
     ]
-    _HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
+    _HREF_RE = re.compile(r'href\s*=\s*["\']?([^"\'\s>]+)', re.IGNORECASE)
 
     def __init__(
         self,

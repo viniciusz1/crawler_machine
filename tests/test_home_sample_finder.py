@@ -290,3 +290,20 @@ def test_filters_pagina_with_ampersand():
     url = finder.find(_candidate())
 
     assert url == "https://imob-x.com.br/imovel/casa-jaragua-do-sul-7"
+
+
+def test_extracts_href_without_quotes():
+    html = """
+    <html>
+      <body>
+        <a href=/imovel/apartamento-jaragua-do-sul-42>Apartamento</a>
+        <a href=/cadastre-seu-imovel>Cadastre</a>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url == "https://imob-x.com.br/imovel/apartamento-jaragua-do-sul-42"
