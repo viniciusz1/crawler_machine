@@ -123,14 +123,25 @@ Flags úteis:
 - `--skip-existing`: preserva `sample_url` já preenchidas em uma execução anterior.
 - `--out <caminho>`: define um caminho de saída diferente.
 
+### Enriquecimento por scraping da home
+
+Se você não quiser depender da Google Custom Search API, o comando `prospecting enrich-samples-home` faz scraping da página inicial de cada imobiliária e extrai o primeiro link que parece uma página de imóvel individual.
+
+```bash
+python -m crawler_machine prospecting enrich-samples-home \
+  output/prospecting/20250712_120000/candidates.yaml
+```
+
+Esse comando **não consome API de busca externa**, mas é menos assertivo que a versão com Google Custom Search: ele pode retornar listagens ou formulários se esses forem os primeiros links relevantes da home. Use-o como primeira tentativa barata e revise o resultado.
+
 Exemplo de fluxo completo:
 
 ```bash
 # 1. Prospecção
 python -m crawler_machine prospecting find --cities "Jaraguá do Sul,SC" --max-per-city 30
 
-# 2. Enriquecimento automático de sample_url
-python -m crawler_machine prospecting enrich-samples \
+# 2. Enriquecimento automático de sample_url (por home scraping)
+python -m crawler_machine prospecting enrich-samples-home \
   output/prospecting/20250712_120000/candidates.yaml
 
 # 3. Batch

@@ -21,6 +21,10 @@ from crawler_machine.prospecting.output import write_candidates
 from crawler_machine.prospecting.parsing import CityParseError, parse_cities
 from crawler_machine.prospecting.places import GooglePlacesGateway
 from crawler_machine.prospecting.prospector import Prospector
+from crawler_machine.prospecting.home_sample_finder import (
+    HomeSampleEnricher,
+    HomeSampleFinder,
+)
 from crawler_machine.prospecting.sample_finder import (
     EnrichedCandidate,
     GoogleCustomSearchGateway,
@@ -260,3 +264,73 @@ def _write_enriched(enriched: list[EnrichedCandidate], path: Path) -> None:
         yaml.safe_dump(output, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+
+
+@prospecting_app.command("enrich-samples-home")
+def enrich_samples_home(
+    input_file: Path = typer.Argument(
+        ..., help="Arquivo YAML de candidatos gerado pelo prospecting find."
+    ),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        help="Arquivo de saída (default: <input>.enriched.yaml).",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Imprime as home pages que seriam visitadas.",
+    ),
+    skip_existing: bool = typer.Option(
+        False,
+        "--skip-existing",
+        help="Preserva sample_url já existentes no arquivo de saída.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Logs detalhados"),
+) -> None:
+    """Enriquece candidatos com sample_url fazendo scraping da home."""
+    setup_logging(verbose)
+    load_env_file()
+
+    if not input_file.exists():
+        raise typer.BadParameter(f"Arquivo não encontrado: {input_file}")
+
+    if out is None:
+        out = input_file.with_suffix(".enriched.yaml")
+
+    raw = yaml.safe_load(input_file.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise typer.BadParameter("YAML de entrada deve ser um documento com 'candidates'.")
+
+    candidates = _load_candidates(raw.get("candidates", []))
+    if not candidates:
+        typer.echo("Nenhum candidato encontrado no arquivo de entrada.")
+        return
+
+    _ensure_unique_source_names(candidates)
+
+    if dry_run:
+        typer.echo("Modo dry-run. Home pages que seriam visitadas:")
+        for candidate in candidates:
+            home = candidate.base_url or ""
+            home = home if home.endswith("/") else home + "/"
+            typer.echo(f"  - {home} ({candidate.source_name})")
+        return
+
+    finder = HomeSampleFinder()
+    enricher = HomeSampleEnricher(finder)
+
+    existing: list[EnrichedCandidate] = []
+    to_enrich = candidates
+    if skip_existing and out.exists():
+        existing, to_enrich = _split_existing(candidates, out)
+
+    enriched = enricher.enrich(to_enrich)
+    enriched = existing + enriched
+
+    _write_enriched(enriched, out)
+
+    found = sum(1 for e in enriched if e.sample_url is not None)
+    missing = len(enriched) - found
+    typer.echo(f"Enriquecimento concluído: {found} com sample_url, {missing} sem.")
+    typer.echo(f"Salvo em: {out}")
