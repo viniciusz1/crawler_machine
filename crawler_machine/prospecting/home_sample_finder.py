@@ -27,6 +27,17 @@ class HomeSampleFinder:
         r"casa",
         r"geminado",
     ]
+    _LISTING_PATTERNS = [
+        r"/imoveis/",
+        r"/filtro/",
+        r"/cadastrar",
+        r"/encomenda",
+        r"/busca",
+        r"dormitorios-",
+        r"estagio-",
+        r"\?ordem=",
+        r"/imoveis\?",
+    ]
     _HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
 
     def __init__(
@@ -57,12 +68,18 @@ class HomeSampleFinder:
         except Exception:
             return None
 
-        candidates = self._extract_urls(html, base_url)
-        if not candidates:
+        all_urls = self._extract_urls(html, base_url)
+        if not all_urls:
             return None
 
-        candidates.sort(key=self._score_url, reverse=True)
-        return candidates[0]
+        candidates = [url for url in all_urls if not self._is_likely_listing_or_form(url)]
+        if candidates:
+            candidates.sort(key=self._score_url, reverse=True)
+            return candidates[0]
+
+        # Fallback: se todas as URLs parecem listagens/formulários,
+        # assume que a home lista imóveis em destaque e pega a do meio.
+        return all_urls[len(all_urls) // 2]
 
     def _extract_urls(self, html: str, base_url: str) -> list[str]:
         raw_links = self._HREF_RE.findall(html)
@@ -97,6 +114,10 @@ class HomeSampleFinder:
     def _looks_like_property(self, path: str) -> bool:
         lower = path.lower()
         return any(re.search(pattern, lower) for pattern in self._PROPERTY_PATTERNS)
+
+    def _is_likely_listing_or_form(self, url: str) -> bool:
+        lower = url.lower()
+        return any(re.search(pattern, lower) for pattern in self._LISTING_PATTERNS)
 
     @staticmethod
     def _score_url(url: str) -> int:
