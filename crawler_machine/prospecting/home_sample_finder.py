@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Callable
 from urllib.parse import urljoin, urlparse
@@ -12,6 +13,35 @@ from crawler_machine.prospecting.models import Candidate
 HomeRequester = Callable[[str], "httpx.Response"]
 
 
+def _render_with_crawl4ai(url: str) -> str:
+    """Renderiza a página com Crawl4AI (headless browser) e retorna o HTML."""
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+
+    browser_config = BrowserConfig(headless=True)
+    run_config = CrawlerRunConfig(
+        page_timeout=60000,
+        js_code="""
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, 3000));
+        """,
+    )
+
+    async def _run() -> str:
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            result = await crawler.arun(url, config=run_config)
+            return result.html if result.success else ""
+
+    try:
+        return asyncio.run(_run())
+    except RuntimeError:
+        # Se já houver um event loop rodando (ex: ambiente async), tenta
+        # executar de forma compatível.
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            return ""
+        return loop.run_until_complete(_run())
+
+
 class HomeSampleFinder:
     """Descobre uma URL de imóvel fazendo scraping da página inicial.
 
@@ -19,6 +49,10 @@ class HomeSampleFinder:
     pertencem ao mesmo domínio e parecem páginas de imóvel individual
     (presença de ``imovel``, ``apartamento``, ``casa`` ou ``geminado`` no
     path). A home propriamente dita é descartada.
+
+    Quando o scraping estático não encontra nada, o finder pode fazer um
+    fallback com Crawl4AI para renderizar JavaScript (carrosséis lazy,
+    SPAs que hidratam no client, etc.).
     """
 
     _PROPERTY_PATTERNS = [
@@ -50,6 +84,11 @@ class HomeSampleFinder:
         r"imoveis-para-",
         r"cidade=.+tipo=",
         r"tipo=.+cidade=",
+        r"/imovel/comprar$",
+        r"/imovel/alugar$",
+        r"/imovel/vender$",
+        r"/imovel/locacao$",
+        r"/imovel/venda$",
     ]
     _HREF_RE = re.compile(r'href\s*=\s*["\']?([^"\'\s>]+)', re.IGNORECASE)
     _JSON_LINK_RE = re.compile(r'["\']link["\']\s*:\s*["\']([^"\']+)["\']', re.IGNORECASE)
@@ -57,8 +96,10 @@ class HomeSampleFinder:
     def __init__(
         self,
         requester: HomeRequester | None = None,
+        enable_js_fallback: bool = True,
     ) -> None:
         self._requester = requester or self._build_default_requester()
+        self._enable_js_fallback = enable_js_fallback
 
     @staticmethod
     def _build_default_requester() -> HomeRequester:
@@ -86,6 +127,18 @@ class HomeSampleFinder:
         if not base_url:
             return None
 
+        sample = self._find_from_home(base_url)
+        if sample is not None:
+            return sample
+
+        if self._enable_js_fallback:
+            html = _render_with_crawl4ai(base_url)
+            if html:
+                return self._find_from_html(html, base_url)
+
+        return None
+
+    def _find_from_home(self, base_url: str) -> str | None:
         home_url = base_url if base_url.endswith("/") else base_url + "/"
         try:
             response = self._requester(home_url)
@@ -94,6 +147,9 @@ class HomeSampleFinder:
         except Exception:
             return None
 
+        return self._find_from_html(html, base_url)
+
+    def _find_from_html(self, html: str, base_url: str) -> str | None:
         all_urls = self._extract_urls(html, base_url)
         if not all_urls:
             return None
@@ -119,6 +175,9 @@ class HomeSampleFinder:
         # "imovel" como segmento próprio do path (ex: /imovel/... ou /imovel),
         # não como substring de formulários (ex: /encomende-seu-imovel).
         if re.search(r"(^|/)imovel(/|$)", path, re.IGNORECASE):
+            # Descarta /imovel/comprar, /imovel/alugar, etc., que são listagens.
+            if re.search(r"/imovel/(comprar|alugar|vender|locacao|venda)$", path, re.IGNORECASE):
+                return False
             return True
         if re.search(r"imovel=\d+", query, re.IGNORECASE):
             return True

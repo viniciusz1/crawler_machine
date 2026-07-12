@@ -1,5 +1,6 @@
 import pytest
 
+from crawler_machine.prospecting import home_sample_finder
 from crawler_machine.prospecting.home_sample_finder import HomeSampleFinder
 from crawler_machine.prospecting.models import Candidate
 
@@ -241,6 +242,23 @@ def test_falls_back_to_middle_url_when_all_are_listings_but_have_property_signal
     assert url == "https://imob-x.com.br/imovel/geminado"
 
 
+def test_filters_imovel_comprar_alugar_listings():
+    html = """
+    <html>
+      <body>
+        <a href="/imovel/comprar">Comprar</a>
+        <a href="/imovel/alugar">Alugar</a>
+      </body>
+    </html>
+    """
+    requester, _ = _requester(html)
+    finder = HomeSampleFinder(requester=requester)
+
+    url = finder.find(_candidate())
+
+    assert url is None
+
+
 def test_returns_none_when_all_urls_are_pure_listings_or_forms():
     html = """
     <html>
@@ -366,6 +384,50 @@ def test_recognizes_detalhes_php_imovel():
         "https://imob-x.com.br/detalhes_loc.php?imovel=1012",
         "https://imob-x.com.br/detalhes_vd.php?imovel=9003",
     }
+
+
+def test_js_fallback_finds_property_when_static_html_is_empty():
+    static_html = """
+    <html><body>
+      <a href="/sobre">Sobre</a>
+    </body></html>
+    """
+    js_html = """
+    <html><body>
+      <a href="/imovel/apartamento-jaragua-do-sul-42">Apartamento</a>
+    </body></html>
+    """
+    requester, _ = _requester(static_html)
+    original = home_sample_finder._render_with_crawl4ai
+    home_sample_finder._render_with_crawl4ai = lambda url: js_html
+    try:
+        finder = HomeSampleFinder(requester=requester, enable_js_fallback=True)
+        url = finder.find(_candidate())
+        assert url == "https://imob-x.com.br/imovel/apartamento-jaragua-do-sul-42"
+    finally:
+        home_sample_finder._render_with_crawl4ai = original
+
+
+def test_js_fallback_can_be_disabled():
+    static_html = """
+    <html><body>
+      <a href="/sobre">Sobre</a>
+    </body></html>
+    """
+    js_html = """
+    <html><body>
+      <a href="/imovel/apartamento-jaragua-do-sul-42">Apartamento</a>
+    </body></html>
+    """
+    requester, _ = _requester(static_html)
+    original = home_sample_finder._render_with_crawl4ai
+    home_sample_finder._render_with_crawl4ai = lambda url: js_html
+    try:
+        finder = HomeSampleFinder(requester=requester, enable_js_fallback=False)
+        url = finder.find(_candidate())
+        assert url is None
+    finally:
+        home_sample_finder._render_with_crawl4ai = original
 
 
 def test_extracts_href_without_quotes():
