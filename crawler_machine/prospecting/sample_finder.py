@@ -177,7 +177,7 @@ class SampleEnricher:
         state = candidate.state
 
         for property_type in self._PROPERTY_TYPES:
-            for query in self._build_queries(base_url, property_type, city, state):
+            for query in self.build_queries(base_url, property_type, city, state):
                 urls = self._gateway.search(query, num_results=self._DEFAULT_NUM_RESULTS)
                 self._sleep(self._delay)
                 for url in urls:
@@ -186,7 +186,7 @@ class SampleEnricher:
         return None
 
     @staticmethod
-    def _build_queries(
+    def build_queries(
         base_url: str, property_type: str, city: str, state: str
     ) -> list[str]:
         return [

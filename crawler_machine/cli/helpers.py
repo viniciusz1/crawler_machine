@@ -51,6 +51,25 @@ def get_places_api_key() -> str:
     return api_key
 
 
+def get_custom_search_credentials() -> tuple[str, str]:
+    """Lê ``GOOGLE_CUSTOM_SEARCH_KEY`` e ``GOOGLE_CUSTOM_SEARCH_CX``."""
+    api_key = os.environ.get("GOOGLE_CUSTOM_SEARCH_KEY")
+    if not api_key:
+        raise typer.BadParameter(
+            "Variável de ambiente GOOGLE_CUSTOM_SEARCH_KEY não definida. "
+            "Crie um arquivo .env na raiz do projeto com sua chave da "
+            "Google Custom Search API."
+        )
+    cx = os.environ.get("GOOGLE_CUSTOM_SEARCH_CX")
+    if not cx:
+        raise typer.BadParameter(
+            "Variável de ambiente GOOGLE_CUSTOM_SEARCH_CX não definida. "
+            "Crie um arquivo .env na raiz do projeto com o ID do seu "
+            "Programmable Search Engine."
+        )
+    return api_key, cx
+
+
 def slugify_domain(domain: str) -> str:
     return domain.replace("https://", "").replace("http://", "").replace(".", "-")
 
