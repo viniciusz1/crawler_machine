@@ -113,4 +113,20 @@ def test_build_crawl_engine_handles_legacy_single_schema(domain_config):
     engine = build_crawl_engine(config=domain_config, schema=schema)
 
     names = [s.name for s in engine._strategies]
-    assert names == ["xpath", "css", "fit_markdown_regex"]
+    assert names == ["xpath", "fit_markdown_regex"]
+
+
+def test_build_crawl_engine_skips_css_when_css_schema_uses_xpath(domain_config):
+    """Regressão: schemas CSS gerados com seletores XPath não devem ativar CssStrategy."""
+    schema = {
+        "schemas": {
+            "xpath": {"name": "items", "baseSelector": "//div[@class='imovel']"},
+            "css": {"name": "items", "baseSelector": "//ul[@data-template='']/li"},
+        }
+    }
+
+    engine = build_crawl_engine(config=domain_config, schema=schema)
+
+    names = [s.name for s in engine._strategies]
+    assert "css" not in names
+    assert names == ["xpath", "fit_markdown_regex"]

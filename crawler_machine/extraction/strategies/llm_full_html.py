@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
-import os
 from typing import Any, Awaitable, Callable
-
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, LLMConfig as Crawl4AILLMConfig
-from crawl4ai.extraction_strategy import LLMExtractionStrategy
 
 from crawler_machine.config import CrawlerConfig, FieldConfig, LLMConfig
 from crawler_machine.extraction.result import CrawlResult
-from crawler_machine.extraction.strategies._constants import _DEFAULT_USER_AGENT
+from crawler_machine.extraction.strategies.crawl4ai_llm_client import Crawl4AILlmClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +28,9 @@ class LlmFullHtmlStrategy:
         self._config = config
         self._fields = fields
         self._llm_config = llm_config
-        self._crawl_and_extract = crawl_and_extract or self._default_crawl_and_extract
+        self._crawl_and_extract = (
+            crawl_and_extract or Crawl4AILlmClient(llm_config, config).extract
+        )
 
     async def extract(self, url: str, previous: CrawlResult | None) -> CrawlResult:
         """Extrai campos faltantes usando LLM sobre o HTML completo."""
@@ -90,45 +87,3 @@ class LlmFullHtmlStrategy:
             "Retorne apenas um objeto JSON válido.\n\n"
             + "\n".join(field_descriptions)
         )
-
-    async def _default_crawl_and_extract(
-        self, url: str, instruction: str, schema: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Execução real usando Crawl4AI + LLMExtractionStrategy."""
-        api_key = os.environ.get(self._llm_config.api_key_env, "")
-        extraction_strategy = LLMExtractionStrategy(
-            provider=self._llm_config.provider,
-            api_token=api_key,
-            base_url=self._llm_config.base_url,
-            instruction=instruction,
-            schema=schema,
-            extraction_type="schema",
-        )
-
-        browser_config = BrowserConfig(
-            headless=self._config.headless if self._config else True,
-            viewport_width=1366,
-            viewport_height=768,
-            user_agent=(
-                self._config.user_agent if self._config and self._config.user_agent else _DEFAULT_USER_AGENT
-            ),
-            enable_stealth=self._config.enable_stealth if self._config else True,
-        )
-        crawler_config = CrawlerRunConfig(
-            extraction_strategy=extraction_strategy,
-            wait_for="css:body",
-            wait_until=self._config.wait_until if self._config else "domcontentloaded",
-            page_timeout=self._config.page_timeout if self._config else 30000,
-            remove_overlay_elements=True,
-        )
-
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            result = await crawler.arun(url=url, config=crawler_config)
-
-        if not result.success:
-            raise RuntimeError(result.error_message or "LLM extraction failed")
-
-        content = result.extracted_content
-        if isinstance(content, str):
-            return json.loads(content)
-        return dict(content)

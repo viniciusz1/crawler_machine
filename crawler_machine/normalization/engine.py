@@ -30,7 +30,11 @@ class DataNormalizer:
     ):
         self._catalog = catalog_repository
         self._city_slug = city_slug
-        self._field_normalizers = field_normalizers or self._build_default_normalizers()
+        self._field_normalizers = (
+            self._build_default_normalizers()
+            if field_normalizers is None
+            else field_normalizers
+        )
 
     def _build_default_normalizers(self) -> dict[str, FieldNormalizer]:
         normalizers: dict[str, FieldNormalizer] = {}

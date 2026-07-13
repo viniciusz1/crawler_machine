@@ -5,9 +5,8 @@ from pathlib import Path
 
 import typer
 
-from crawler_machine.batch import BatchError, run_batch
+from crawler_machine.batch import BatchError, build_default_runner, run_batch
 from crawler_machine.cli.app import app
-from crawler_machine.cli.builder import build_batch_runner
 from crawler_machine.cli.helpers import (
     check_api_key,
     load_config,
@@ -40,7 +39,7 @@ def clone_das_sombras(
     if sink is not None:
         logging.info("Postgres sink ativado")
 
-    runner = build_batch_runner(
+    runner = build_default_runner(
         config=config,
         output_dir=output_dir,
         verbose=verbose,

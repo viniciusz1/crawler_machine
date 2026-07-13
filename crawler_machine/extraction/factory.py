@@ -4,6 +4,7 @@ from typing import Any
 
 from crawler_machine.config import DomainConfig
 from crawler_machine.extraction.engine import REQUIRED_FIELDS, CrawlEngine
+from crawler_machine.pipeline_helpers import detect_schema_type
 from crawler_machine.extraction.strategies import (
     CssStrategy,
     FitMarkdownLlmStrategy,
@@ -32,7 +33,7 @@ def build_crawl_engine(
 
     strategies = [XPathStrategy(config=config.crawler, schema=xpath_schema)]
 
-    if css_schema:
+    if css_schema and detect_schema_type(css_schema) == "CSS":
         css = CssStrategy(schema=css_schema)
         strategies.append(css)
 

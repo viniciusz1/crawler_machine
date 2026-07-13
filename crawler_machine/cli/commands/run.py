@@ -7,7 +7,6 @@ import typer
 from tqdm import tqdm
 
 from crawler_machine.cli.app import app
-from crawler_machine.cli.builder import build_pipeline
 from crawler_machine.cli.helpers import (
     check_api_key,
     load_config,
@@ -16,6 +15,7 @@ from crawler_machine.cli.helpers import (
     make_output,
     setup_logging,
 )
+from crawler_machine.pipeline import build_pipeline
 
 
 @app.command()
@@ -69,7 +69,7 @@ def run(
         pipeline = build_pipeline(
             config,
             output,
-            progress_bar,
+            progress_bar=progress_bar,
             verbose=verbose,
             sink=sink,
             source_name=source_name,

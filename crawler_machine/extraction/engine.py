@@ -4,13 +4,11 @@ import asyncio
 import logging
 from typing import Any
 
-from crawler_machine.config import CrawlerConfig
+from crawler_machine.config import REQUIRED_FIELDS, CrawlerConfig
 from crawler_machine.extraction.result import CrawlResult
 from crawler_machine.extraction.strategy import ExtractionStrategy
 
 logger = logging.getLogger(__name__)
-
-REQUIRED_FIELDS = {"bairro", "cidade", "valor", "tipo_imovel", "url", "imagem"}
 
 
 class CrawlEngine:
@@ -19,11 +17,11 @@ class CrawlEngine:
     def __init__(
         self,
         config: CrawlerConfig,
-        required_fields: set[str],
+        required_fields: set[str] | tuple[str, ...],
         strategies: list[ExtractionStrategy],
     ):
         self._config = config
-        self._required_fields = required_fields
+        self._required_fields = set(required_fields)
         self._strategies = [s for s in strategies if s.enabled]
 
     async def crawl(self, urls: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

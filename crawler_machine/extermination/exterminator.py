@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from crawler_machine.config import REQUIRED_FIELDS
+
 
 @dataclass
 class RejectedRecord:
@@ -24,14 +26,7 @@ class Exterminator:
     removidos do fluxo principal e devolvidos como rejeitados para auditoria.
     """
 
-    DEFAULT_REQUIRED_FIELDS = [
-        "bairro",
-        "cidade",
-        "valor",
-        "tipo_imovel",
-        "url",
-        "imagem",
-    ]
+    DEFAULT_REQUIRED_FIELDS = list(REQUIRED_FIELDS)
 
     def __init__(self, required_fields: list[str] | None = None):
         self.required_fields = required_fields or list(self.DEFAULT_REQUIRED_FIELDS)

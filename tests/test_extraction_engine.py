@@ -257,6 +257,6 @@ def test_crawl_result_defaults():
 
 
 def test_required_fields_set_is_exposed():
-    from crawler_machine.extraction.engine import REQUIRED_FIELDS as EngineRequired
+    from crawler_machine.config import REQUIRED_FIELDS as DomainRequired
 
-    assert EngineRequired == REQUIRED_FIELDS
+    assert set(DomainRequired) == REQUIRED_FIELDS

@@ -8,7 +8,7 @@ import pytest
 
 from crawler_machine.sink import (
     PostgresConfig,
-    PostgresSink,
+    RunStore,
     build_source_name,
 )
 from crawler_machine.sink.coercion import (
@@ -123,7 +123,7 @@ def test_save_run_persists_run_and_properties_atomically():
         user="user",
         password="pass",
     )
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = [42]
@@ -191,7 +191,7 @@ def test_fail_run_updates_status_and_error():
         user="user",
         password="pass",
     )
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_connection = MagicMock()
@@ -213,7 +213,7 @@ def test_fail_run_updates_status_and_error():
 
 def test_save_discovery_run_persists_and_flips_latest():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = [10]
@@ -240,7 +240,7 @@ def test_save_discovery_run_persists_and_flips_latest():
 
 def test_load_latest_discovery_returns_urls():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = [["https://example.com/a", "https://example.com/b"]]
@@ -256,7 +256,7 @@ def test_load_latest_discovery_returns_urls():
 
 def test_load_latest_discovery_returns_none_when_no_rows():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = None
@@ -272,7 +272,7 @@ def test_load_latest_discovery_returns_none_when_no_rows():
 
 def test_start_discovery_run_creates_running_row():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = [5]
@@ -291,7 +291,7 @@ def test_start_discovery_run_creates_running_row():
 
 def test_fail_discovery_run_updates_status():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_connection = MagicMock()
@@ -312,7 +312,7 @@ def test_fail_discovery_run_updates_status():
 
 def test_save_schema_run_persists_and_flips_latest():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = [7]
@@ -343,7 +343,7 @@ def test_save_schema_run_persists_and_flips_latest():
 
 def test_load_latest_schema_returns_schema_data():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     expected_schema = {"name": "ImovelSchema", "baseSelector": "//body", "fields": [{"name": "quartos", "selector": "//span[@class='rooms']"}]}
     mock_cursor = MagicMock()
@@ -360,7 +360,7 @@ def test_load_latest_schema_returns_schema_data():
 
 def test_load_latest_schema_returns_none_when_no_rows():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = None
@@ -376,7 +376,7 @@ def test_load_latest_schema_returns_none_when_no_rows():
 
 def test_start_schema_run_creates_running_row():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_cursor.fetchone.return_value = [3]
@@ -395,7 +395,7 @@ def test_start_schema_run_creates_running_row():
 
 def test_fail_schema_run_updates_status():
     config = PostgresConfig(host="localhost", port=5432, database="test", user="user", password="pass")
-    sink = PostgresSink(config)
+    sink = RunStore(config)
 
     mock_cursor = MagicMock()
     mock_connection = MagicMock()

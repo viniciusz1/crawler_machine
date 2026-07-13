@@ -43,6 +43,7 @@ class Prospector:
     def run(self) -> ProspectingResult:
         classified: list[Candidate] = []
         save_errors: list[str] = []
+        seen_domains: set[str] = set()
 
         for city in self._cities:
             places = self._gateway.search_imobiliarias(
@@ -50,6 +51,7 @@ class Prospector:
             )
             new_places = self._filter_new(places)
             city_classified = [classify(place) for place in new_places]
+            city_classified = dedup_by_domain(city_classified, seen_domains)
             classified.extend(city_classified)
 
             if self._repository is not None and self._run_id is not None:
@@ -64,7 +66,6 @@ class Prospector:
                     logger.error(message)
                     save_errors.append(message)
 
-        classified = dedup_by_domain(classified)
         candidates = [c for c in classified if c.status == "candidate"]
         rejected = [c for c in classified if c.status == "rejected"]
 

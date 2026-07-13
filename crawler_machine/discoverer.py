@@ -4,8 +4,6 @@ import asyncio
 import re
 from typing import Any, Protocol
 
-from crawl4ai import DomainMapper
-
 _DEFAULT_LISTING_PATTERNS = [
     r"/imovel/",
     r"/(comprar|alugar|vender)/",
@@ -19,6 +17,16 @@ class URLMapper(Protocol):
     async def scan(self, url: str) -> list[dict[str, Any]]: ...
 
 
+class DomainMapperAdapter:
+    """Adapter que isola a dependência concreta do crawl4ai.DomainMapper."""
+
+    async def scan(self, url: str) -> list[dict[str, Any]]:
+        from crawl4ai import DomainMapper
+
+        async with DomainMapper() as mapper:
+            return await mapper.scan(url)
+
+
 class URLDiscoverer:
     """Descobre URLs a partir de uma URL base."""
 
@@ -28,7 +36,7 @@ class URLDiscoverer:
         max_urls: int = 500,
         listing_patterns: list[str] | None = None,
     ):
-        self._mapper = mapper
+        self._mapper = mapper or DomainMapperAdapter()
         self.max_urls = max_urls
         self._listing_patterns = (
             _DEFAULT_LISTING_PATTERNS
@@ -38,12 +46,7 @@ class URLDiscoverer:
 
     async def discover(self, base_url: str) -> list[str]:
         """Descobre URLs a partir da URL base."""
-        mapper = self._mapper
-        if mapper is None:
-            async with DomainMapper() as domain_mapper:
-                results = await domain_mapper.scan(base_url)
-        else:
-            results = await mapper.scan(base_url)
+        results = await self._mapper.scan(base_url)
 
         urls: list[str] = []
         compiled = [re.compile(pattern) for pattern in self._listing_patterns]

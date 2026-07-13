@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from crawler_machine.config import DomainConfig
 from crawler_machine.extermination.exterminator import Exterminator, RejectedRecord
-from crawler_machine.pipeline.discovery_cache import DiscoveryCache
 from crawler_machine.pipeline.normalizer_factory import NormalizerFactory
 from crawler_machine.pipeline.protocols import (
     CrawlerFactory,
+    DiscoveryRunStore,
     Discoverer,
     ProgressCallback,
     SchemaGenerator,
+    SchemaRunStore,
     Sink,
 )
-from crawler_machine.pipeline.schema_cache import SchemaCache
 from crawler_machine.pipeline.state import ExecutionState
+from crawler_machine.pipeline_helpers import detect_schema_type
 
 
 async def discover_urls(
@@ -22,20 +24,26 @@ async def discover_urls(
     base_url: str,
     regenerate: bool,
     discoverer: Discoverer,
-    sink: Sink | None,
+    sink: DiscoveryRunStore | None,
     report: ProgressCallback | None,
 ) -> tuple[list[str], int | None]:
-    cache = DiscoveryCache(sink)
-    cached = await cache.load(source_name, regenerate)
-    if cached is not None:
-        _report(report, "discovery", 25, f"{len(cached)} URLs reutilizadas do cache")
-        return cached, None
+    if sink is not None and not regenerate:
+        cached = await asyncio.to_thread(sink.load_latest_discovery, source_name)
+        if cached is not None:
+            _report(
+                report, "discovery", 25, f"{len(cached)} URLs reutilizadas do cache"
+            )
+            return cached, None
 
     _report(report, "discovery", 0, "Iniciando descoberta de URLs...")
     urls = await discoverer.discover(base_url)
     _report(report, "discovery", 25, f"{len(urls)} URLs descobertas")
 
-    discovery_run_id = await cache.save(source_name, urls)
+    discovery_run_id = None
+    if sink is not None:
+        discovery_run_id = await asyncio.to_thread(
+            sink.save_discovery_run, source_name, urls
+        )
     return urls, discovery_run_id
 
 
@@ -44,14 +52,14 @@ async def build_schema(
     sample_url: str | None,
     regenerate: bool,
     schema_generator: SchemaGenerator,
-    sink: Sink | None,
+    sink: SchemaRunStore | None,
     report: ProgressCallback | None,
 ) -> tuple[dict[str, Any], int | None]:
-    cache = SchemaCache(sink)
-    cached = await cache.load(source_name, regenerate)
-    if cached is not None:
-        _report(report, "schema", 50, "Schema reutilizado do cache")
-        return cached, None
+    if sink is not None and not regenerate:
+        cached = await asyncio.to_thread(sink.load_latest_schema, source_name)
+        if cached is not None:
+            _report(report, "schema", 50, "Schema reutilizado do cache")
+            return cached, None
 
     effective_sample = _require_sample_url(sample_url, sink)
     _report(
@@ -60,11 +68,46 @@ async def build_schema(
     schema = await schema_generator.generate(effective_sample)
     _report(report, "schema", 50, "Schema gerado")
 
-    schema_run_id = await cache.save(source_name, schema, effective_sample)
+    schema_run_id = None
+    if sink is not None:
+        schema_run_id = await _save_schema_runs(
+            sink, source_name, schema, effective_sample
+        )
     return schema, schema_run_id
 
 
-def _require_sample_url(sample_url: str | None, sink: Sink | None) -> str:
+async def _save_schema_runs(
+    sink: SchemaRunStore,
+    source_name: str,
+    schema: dict[str, Any],
+    sample_url: str,
+) -> int | None:
+    schemas = schema.get("schemas", {})
+    if not schemas:
+        schema_type = detect_schema_type(schema)
+        return await asyncio.to_thread(
+            sink.save_schema_run,
+            source_name,
+            schema,
+            schema_type,
+            sample_url,
+            [],
+        )
+
+    last_id: int | None = None
+    for schema_type, schema_data in schemas.items():
+        last_id = await asyncio.to_thread(
+            sink.save_schema_run,
+            source_name,
+            schema_data,
+            schema_type.upper(),
+            sample_url,
+            [],
+        )
+    return last_id
+
+
+def _require_sample_url(sample_url: str | None, sink: SchemaRunStore | None) -> str:
     if sample_url is not None:
         return sample_url
 

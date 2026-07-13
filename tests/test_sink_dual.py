@@ -4,7 +4,7 @@ import psycopg2
 import pytest
 from dotenv import load_dotenv
 
-from crawler_machine.sink import PostgresConfig, PostgresSink
+from crawler_machine.sink import PostgresConfig, RunStore
 from tests.catalog_seed import seed_test_catalogs
 from tests.crawler_schema import ensure_schema
 
@@ -47,7 +47,7 @@ def sink():
                 """
             )
     connection.close()
-    return PostgresSink(config)
+    return RunStore(config)
 
 
 @pytest.mark.skipif(not os.getenv("DB_HOST"), reason="Postgres not configured")

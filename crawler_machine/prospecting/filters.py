@@ -41,6 +41,7 @@ AGGREGATOR_DOMAINS: frozenset[str] = frozenset(
         "google.com",
         "wikipedia.org",
         "gov.br",
+        "wa.me"
     }
 )
 
@@ -140,25 +141,31 @@ def classify(place: Place) -> Candidate:
     return _candidate(place, base_url=website, status="candidate", reject_reason=None)
 
 
-def dedup_by_domain(candidates: list[Candidate]) -> list[Candidate]:
+def dedup_by_domain(
+    candidates: list[Candidate],
+    seen: set[str] | None = None,
+) -> list[Candidate]:
     """Marca como ``duplicate_domain`` as ocorrências repetidas de um domínio.
 
     Mantém a primeira ocorrência de cada domínio raiz (com seu status
     original) e rejeita as subsequentes. Candidatos sem ``base_url`` (ex.:
     ``no_website``) não participam da dedup e são preservados como estão.
+
+    Quando ``seen`` é fornecido, ele é mutado com os domínios encontrados,
+    permitindo deduplicação incremental entre lotes.
     """
-    seen: set[str] = set()
+    local_seen = seen if seen is not None else set()
     result: list[Candidate] = []
     for candidate in candidates:
         domain = root_domain(candidate.base_url) if candidate.base_url else None
         if domain is None or domain == "":
             result.append(candidate)
             continue
-        if domain in seen:
+        if domain in local_seen:
             result.append(
                 replace(candidate, status="rejected", reject_reason="duplicate_domain")
             )
             continue
-        seen.add(domain)
+        local_seen.add(domain)
         result.append(candidate)
     return result

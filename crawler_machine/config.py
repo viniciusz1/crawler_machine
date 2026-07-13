@@ -5,6 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+REQUIRED_FIELDS: tuple[str, ...] = (
+    "bairro",
+    "cidade",
+    "valor",
+    "tipo_imovel",
+    "url",
+    "imagem",
+)
+
 
 @dataclass(frozen=True)
 class LLMConfig:
