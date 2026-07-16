@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 from psycopg2.extras import Json, execute_values
 
@@ -194,6 +195,106 @@ class PostgresOperationStore:
                             operation_id,
                         ),
                     )
+
+    def complete_sample_suggestion(
+        self, operation_id: int, worker_key: str, sample_url: str | None
+    ) -> None:
+        with connect(self._config) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE crawler.operations AS operation
+                        SET state = 'succeeded',
+                            stage = 'completed',
+                            progress_percentage = 100,
+                            progress_message = 'Sample URL suggestion completed',
+                            result = %s,
+                            completed_at = NOW(),
+                            lease_expires_at = NULL,
+                            updated_at = NOW()
+                        WHERE operation.id = %s
+                          AND operation.state = 'running'
+                          AND operation.worker_instance_id = (
+                              SELECT id FROM crawler.worker_instances WHERE worker_key = %s
+                          )
+                        """,
+                        (Json({"sample_url": sample_url}), operation_id, worker_key),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RuntimeError("sample suggestion operation is no longer owned")
+
+    def complete_profile(
+        self, operation_id: int, worker_key: str, profile: dict[str, Any]
+    ) -> None:
+        with connect(self._config) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT operation.crawl_agency_id, operation.plan
+                        FROM crawler.operations AS operation
+                        JOIN crawler.worker_instances AS worker
+                          ON worker.id = operation.worker_instance_id
+                        WHERE operation.id = %s
+                          AND operation.state = 'running'
+                          AND worker.worker_key = %s
+                        FOR UPDATE
+                        """,
+                        (operation_id, worker_key),
+                    )
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("profile operation is terminal or owned by another worker")
+                    agency_id, plan = row
+                    cursor.execute("SELECT pg_advisory_xact_lock(%s)", (agency_id,))
+                    cursor.execute(
+                        """
+                        SELECT COALESCE(MAX(version), 0) + 1
+                        FROM crawler.extraction_profiles
+                        WHERE crawl_agency_id = %s
+                        """,
+                        (agency_id,),
+                    )
+                    version = cursor.fetchone()[0]
+                    cursor.execute(
+                        """
+                        INSERT INTO crawler.extraction_profiles
+                            (crawl_agency_id, discovery_snapshot_id,
+                             market_data_contract_version_id, created_by_operation_id,
+                             version, status, sample_url, schemas, strategies, fields,
+                             parameters, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, 'candidate', %s, %s, %s, %s, %s, NOW(), NOW())
+                        RETURNING id
+                        """,
+                        (
+                            agency_id,
+                            plan["discovery_snapshot_id"],
+                            plan["market_data_contract_version_id"],
+                            operation_id,
+                            version,
+                            plan["sample_url"],
+                            Json(profile["schemas"]),
+                            Json(profile["strategies"]),
+                            Json(profile["fields"]),
+                            Json(profile.get("parameters", {})),
+                        ),
+                    )
+                    profile_id = cursor.fetchone()[0]
+                    cursor.execute(
+                        """
+                        UPDATE crawler.operations
+                        SET state = 'succeeded', stage = 'completed',
+                            progress_percentage = 100,
+                            progress_message = 'Extraction Profile candidate persisted',
+                            result = %s, completed_at = NOW(), lease_expires_at = NULL,
+                            updated_at = NOW()
+                        WHERE id = %s AND state = 'running'
+                        """,
+                        (Json({"extraction_profile_id": profile_id}), operation_id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RuntimeError("operation is terminal or owned by another worker")
 
     def fail(
         self, operation_id: int, worker_key: str, code: str, message: str

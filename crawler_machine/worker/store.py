@@ -36,6 +36,14 @@ class OperationStore(Protocol):
         self, operation_id: int, worker_key: str, urls: list[str]
     ) -> None: ...
 
+    def complete_sample_suggestion(
+        self, operation_id: int, worker_key: str, sample_url: str | None
+    ) -> None: ...
+
+    def complete_profile(
+        self, operation_id: int, worker_key: str, profile: dict[str, Any]
+    ) -> None: ...
+
     def fail(
         self, operation_id: int, worker_key: str, code: str, message: str
     ) -> None: ...

@@ -11,6 +11,8 @@ class FakeOperationStore:
     operation: ClaimedOperation | None
     progress: list[tuple[int, str, int, int, int, str]] = field(default_factory=list)
     completed: list[tuple[int, list[str]]] = field(default_factory=list)
+    completed_suggestions: list[tuple[int, str | None]] = field(default_factory=list)
+    completed_profiles: list[tuple[int, dict]] = field(default_factory=list)
 
     def register_worker(self, worker_key: str, version: str, capacity: dict[str, int]) -> None:
         self.registration = (worker_key, version, capacity)
@@ -34,6 +36,16 @@ class FakeOperationStore:
     def complete_discovery(self, operation_id: int, worker_key: str, urls: list[str]) -> None:
         self.completed.append((operation_id, urls))
 
+    def complete_sample_suggestion(
+        self, operation_id: int, worker_key: str, sample_url: str | None
+    ) -> None:
+        self.completed_suggestions.append((operation_id, sample_url))
+
+    def complete_profile(
+        self, operation_id: int, worker_key: str, profile: dict
+    ) -> None:
+        self.completed_profiles.append((operation_id, profile))
+
     def fail(self, operation_id: int, worker_key: str, code: str, message: str) -> None:
         raise AssertionError(f"unexpected failure: {code} {message}")
 
@@ -45,6 +57,24 @@ class FakeDiscoverer:
             "https://agency.example.com/imovel/1",
             "https://agency.example.com/imovel/2",
         ]
+
+
+class FakeSampleFinder:
+    def find(self, base_url: str) -> str | None:
+        assert base_url == "https://agency.example.com"
+        return "https://agency.example.com/imovel/confirmed-candidate"
+
+
+class FakeProfileGenerator:
+    def generate(self, sample_url: str, fields: list[dict]) -> dict:
+        assert sample_url == "https://agency.example.com/imovel/confirmed"
+        assert fields[0]["name"] == "title"
+        return {
+            "schemas": {"xpath": {"fields": []}, "css": {"fields": []}},
+            "strategies": ["xpath", "css"],
+            "fields": fields,
+            "parameters": {"generated_by": "fake"},
+        }
 
 
 def test_worker_claims_and_completes_discovery_operation() -> None:
@@ -74,3 +104,54 @@ def test_worker_claims_and_completes_discovery_operation() -> None:
         )
     ]
     assert store.progress[-1][1:5] == ("discovery", 90, 2, 2)
+
+
+def test_worker_suggests_sample_only_from_home_finder() -> None:
+    store = FakeOperationStore(
+        ClaimedOperation(
+            id=8,
+            type="sample_url_suggestion",
+            crawl_agency_id=42,
+            plan={"base_url": "https://agency.example.com"},
+        )
+    )
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        sample_finder=FakeSampleFinder(),
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+    assert store.completed_suggestions == [
+        (8, "https://agency.example.com/imovel/confirmed-candidate")
+    ]
+
+
+def test_worker_persists_immutable_candidate_profile() -> None:
+    store = FakeOperationStore(
+        ClaimedOperation(
+            id=9,
+            type="profile_generation",
+            crawl_agency_id=42,
+            plan={
+                "sample_url": "https://agency.example.com/imovel/confirmed",
+                "sample_url_confirmed": True,
+                "contract_fields": [
+                    {"name": "title", "type": "string", "required": True}
+                ],
+            },
+        )
+    )
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        profile_generator=FakeProfileGenerator(),
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+    assert store.completed_profiles[0][0] == 9
+    assert store.completed_profiles[0][1]["strategies"] == ["xpath", "css"]

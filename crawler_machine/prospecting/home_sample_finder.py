@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from crawler_machine.prospecting.models import Candidate
+from crawler_machine.prospecting.models import Candidate, EnrichedCandidate
 
 
 HomeRequester = Callable[[str], "httpx.Response"]
@@ -96,10 +96,12 @@ class HomeSampleFinder:
     def __init__(
         self,
         requester: HomeRequester | None = None,
-        enable_js_fallback: bool = True,
+        enable_js_fallback: bool | None = None,
     ) -> None:
         self._requester = requester or self._build_default_requester()
-        self._enable_js_fallback = enable_js_fallback
+        self._enable_js_fallback = (
+            requester is None if enable_js_fallback is None else enable_js_fallback
+        )
 
     @staticmethod
     def _build_default_requester() -> HomeRequester:
@@ -247,9 +249,6 @@ class HomeSampleFinder:
             if term in path.lower():
                 score += 5
         return score
-
-
-from crawler_machine.prospecting.sample_finder import EnrichedCandidate
 
 
 class HomeSampleEnricher:

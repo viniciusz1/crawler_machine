@@ -106,26 +106,7 @@ A UF é obrigatória (para desambiguar homônimos). O resultado é um **YAML de 
 
 ### Enriquecimento automático de sample_url
 
-O comando `prospecting enrich-samples` busca automaticamente uma URL de exemplo (`sample_url`) para cada candidato aprovado usando a **Google Custom Search API**. A busca prefere apartamentos, depois geminados e por último casas.
-
-Requer as variáveis `GOOGLE_CUSTOM_SEARCH_KEY` e `GOOGLE_CUSTOM_SEARCH_CX` no `.env`.
-
-```bash
-python -m crawler_machine prospecting enrich-samples \
-  output/prospecting/20250712_120000/candidates.yaml
-```
-
-O comando gera `candidates.enriched.yaml` ao lado do arquivo de entrada, no formato de lista esperado pelo `clone-das-sombras`. Candidatos sem resultado são incluídos com `sample_url: null` para preenchimento manual.
-
-Flags úteis:
-
-- `--dry-run`: mostra as queries que seriam executadas sem gastar crédito da API.
-- `--skip-existing`: preserva `sample_url` já preenchidas em uma execução anterior.
-- `--out <caminho>`: define um caminho de saída diferente.
-
-### Enriquecimento por scraping da home
-
-Se você não quiser depender da Google Custom Search API, o comando `prospecting enrich-samples-home` faz scraping da página inicial de cada imobiliária e extrai o primeiro link que parece uma página de imóvel individual.
+O comando `prospecting enrich-samples-home` faz scraping da página inicial de cada imobiliária e extrai o primeiro link que parece uma página de imóvel individual.
 
 ```bash
 python -m crawler_machine prospecting enrich-samples-home \
@@ -134,7 +115,7 @@ python -m crawler_machine prospecting enrich-samples-home \
 
 O comando gera `candidates.enriched.home.yaml` ao lado do arquivo de entrada. Ele aplica filtros para descartar URLs óbvias de listagens (`/imoveis/`, `/filtro/`, `?pagina=`, etc.) e formulários (`/cadastrar-imovel`, `/encomenda_imovel`, `/anuncie-seu-imovel`, etc.). Quando a home só contém esses tipos de link, o comando usa a URL do meio da lista como fallback — nesse caso o resultado pode ser uma listagem e deve ser revisado manualmente.
 
-Esse comando **não consome API de busca externa**, mas é menos assertivo que a versão com Google Custom Search. Use-o como primeira tentativa barata e revise o resultado.
+Esse comando não consome API de busca externa. Revise o resultado antes de usá-lo para gerar um schema.
 
 Flags úteis:
 

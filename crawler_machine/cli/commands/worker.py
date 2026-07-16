@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import socket
 import time
+from pathlib import Path
 
 import typer
 
 from crawler_machine.cli.app import app
-from crawler_machine.cli.helpers import load_env_file, setup_logging
+from crawler_machine.cli.helpers import load_config, load_env_file, setup_logging
 from crawler_machine.discoverer import URLDiscoverer
 from crawler_machine.sink.config import PostgresConfig
+from crawler_machine.worker.adapters import ExtractionProfileGenerator, HomeSampleFinderAdapter
 from crawler_machine.worker.postgres_store import PostgresOperationStore
 from crawler_machine.worker.runner import CrawlerWorker
 
@@ -23,6 +25,9 @@ def worker(
         3.0, "--poll-seconds", min=0.1, help="Intervalo quando a fila está vazia"
     ),
     once: bool = typer.Option(False, "--once", help="Processa no máximo uma operação"),
+    config_path: Path = typer.Option(
+        Path("config/domain.json"), "--config", help="Configuração de LLM do worker"
+    ),
 ) -> None:
     """Executa o worker durável que reivindica operações no Postgres."""
     load_env_file()
@@ -30,12 +35,15 @@ def worker(
     config = PostgresConfig.from_env()
     if config is None:
         raise typer.BadParameter("Defina todas as variáveis DB_* para executar o worker.")
+    domain_config = load_config(config_path)
 
     runner = CrawlerWorker(
         store=PostgresOperationStore(config),
         discoverer=URLDiscoverer(),
         worker_key=worker_key,
         version=version,
+        sample_finder=HomeSampleFinderAdapter(),
+        profile_generator=ExtractionProfileGenerator(domain_config.llm),
     )
 
     while True:

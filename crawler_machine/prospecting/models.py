@@ -64,6 +64,15 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class EnrichedCandidate:
+    """Candidato enriquecido com uma ``sample_url`` descoberta."""
+
+    base_url: str
+    source_name: str
+    sample_url: str | None
+
+
+@dataclass(frozen=True)
 class Summary:
     total: int
     candidates: int
