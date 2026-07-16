@@ -7,6 +7,7 @@ from crawler_machine.cli.commands import (
     prospecting,
     run,
     schema,
+    worker,
 )
 
 app.add_typer(prospecting.prospecting_app, name="prospecting")

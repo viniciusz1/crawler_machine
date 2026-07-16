@@ -32,6 +32,14 @@ def test_crawl_help_shows_enable_llm_fallback():
     assert "--enable-llm-fallback" in result.output
 
 
+def test_worker_help_exposes_observability_identity_without_process_api():
+    result = runner.invoke(app, ["worker", "--help"])
+
+    assert result.exit_code == 0
+    assert "--worker-key" in result.output
+    assert "--version" in result.output
+
+
 def test_run_requires_source_name():
     """--source-name deve ser obrigatório no comando run."""
     result = runner.invoke(app, ["run", "https://example.com"])
