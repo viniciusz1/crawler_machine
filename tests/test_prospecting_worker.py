@@ -30,3 +30,14 @@ def test_executor_uses_gateway_and_keeps_rejected_results_while_skipping_known_d
     assert result[1]["automatic_reason"] == "no_website"
     assert result[2]["automatic_reason"] == "aggregator"
     assert all("api_key" not in item for item in result)
+
+    requery = ProspectingExecutor(FakePlacesGateway()).run(
+        {
+            "city": "Joinville",
+            "state": "SC",
+            "max_results": 30,
+            "requery_known_domains": True,
+        },
+        {"example.com"},
+    )
+    assert requery[0]["google_place_id"] == "known"

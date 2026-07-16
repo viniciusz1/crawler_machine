@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted; the `source_name` compatibility aspect is superseded by ADR 0006, and force-reprocessing semantics are superseded by ADR 0008.
 
 ## Context
 
@@ -66,7 +66,7 @@ class ProspectRepository(ABC):
 
 - Elimina redescoberta de imobiliárias já prospectadas, economizando cota da Google Places API.
 - Permite executar `prospecting find` periodicamente para a mesma cidade sem poluir o YAML com candidatos repetidos.
-- Centraliza o histórico de decisões (`candidate`/`rejected`) para auditoria.
+- Centraliza o histórico de classificação e revisão para consulta operacional.
 - Facilita futuras features como "listar prospects pendentes" ou "exportar candidatos aprovados".
 
 ### Negativas

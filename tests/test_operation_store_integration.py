@@ -181,6 +181,20 @@ def test_worker_persists_prospects_without_overwriting_human_review() -> None:
                     ),
                 )
                 reviewed_id = cursor.fetchone()[0]
+                cursor.execute(
+                    """
+                    INSERT INTO crawler.crawl_agencies
+                        (name, slug, base_url, root_domain, lifecycle_state, created_at, updated_at)
+                    VALUES ('Existing Name', %s, %s, %s, 'active', NOW(), NOW())
+                    RETURNING id
+                    """,
+                    (
+                        f"suggestion-{suffix}",
+                        f"https://agency-{suffix}.com.br",
+                        f"agency-{suffix}.com.br",
+                    ),
+                )
+                agency_id = cursor.fetchone()[0]
 
         store = PostgresOperationStore(config)
         worker_key = f"prospect-worker-{suffix}"
@@ -202,7 +216,20 @@ def test_worker_persists_prospects_without_overwriting_human_review() -> None:
                     "automatic_classification": "rejected",
                     "automatic_reason": "automatic_check",
                     "metadata": {"fresh": True},
-                }
+                },
+                {
+                    "root_domain": f"agency-{suffix}.com.br",
+                    "google_place_id": f"agency-{suffix}",
+                    "name": "Suggested New Name",
+                    "city": "Joinville",
+                    "state": "SC",
+                    "base_url": f"https://new.agency-{suffix}.com.br",
+                    "phone": "+55 47 9999-9999",
+                    "source": "google_places",
+                    "automatic_classification": "candidate",
+                    "automatic_reason": None,
+                    "metadata": {"fresh": True},
+                },
             ],
         )
 
@@ -222,9 +249,42 @@ def test_worker_persists_prospects_without_overwriting_human_review() -> None:
                     "rejected",
                     operation_id,
                 )
+                cursor.execute(
+                    """
+                    SELECT agency.name, agency.lifecycle_state, suggestion.state,
+                           suggestion.differences->>'name'
+                    FROM crawler.crawl_agencies AS agency
+                    JOIN crawler.crawl_agency_suggestions AS suggestion
+                      ON suggestion.crawl_agency_id = agency.id
+                    WHERE agency.id = %s
+                    """,
+                    (agency_id,),
+                )
+                assert cursor.fetchone() == (
+                    "Existing Name",
+                    "active",
+                    "pending",
+                    "Suggested New Name",
+                )
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM crawler.prospect_operation_observations
+                    WHERE operation_id = %s AND prospect_id = %s
+                    """,
+                    (operation_id, reviewed_id),
+                )
+                assert cursor.fetchone()[0] == 1
     finally:
         with connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM crawler.crawl_agency_suggestions WHERE operation_id = %s",
+                    (locals().get("operation_id", -1),),
+                )
+                cursor.execute(
+                    "DELETE FROM crawler.prospect_operation_observations WHERE operation_id = %s",
+                    (locals().get("operation_id", -1),),
+                )
                 cursor.execute(
                     "DELETE FROM crawler.prospects WHERE id = %s",
                     (locals().get("reviewed_id", -1),),
@@ -236,6 +296,10 @@ def test_worker_persists_prospects_without_overwriting_human_review() -> None:
                 cursor.execute(
                     "DELETE FROM crawler.worker_instances WHERE worker_key = %s",
                     (locals().get("worker_key", "missing"),),
+                )
+                cursor.execute(
+                    "DELETE FROM crawler.crawl_agencies WHERE id = %s",
+                    (locals().get("agency_id", -1),),
                 )
                 cursor.execute(
                     "DELETE FROM users WHERE id = %s", (locals().get("user_id", -1),)

@@ -687,6 +687,45 @@ class PostgresOperationStore:
                         raise RuntimeError("prospecting operation is no longer owned")
 
                     for prospect in prospects:
+                        root_domain = prospect.get("root_domain")
+                        if root_domain is not None:
+                            cursor.execute(
+                                """
+                                SELECT id, name, base_url
+                                FROM crawler.crawl_agencies
+                                WHERE root_domain = %s
+                                FOR UPDATE
+                                """,
+                                (root_domain,),
+                            )
+                            agency = cursor.fetchone()
+                            if agency is not None:
+                                differences = {
+                                    key: value
+                                    for key, value in {
+                                        "name": prospect.get("name"),
+                                        "base_url": prospect.get("base_url"),
+                                        "phone": prospect.get("phone"),
+                                        "address": prospect.get("address"),
+                                    }.items()
+                                    if value is not None
+                                    and (
+                                        key not in {"name", "base_url"}
+                                        or value != agency[1 if key == "name" else 2]
+                                    )
+                                }
+                                cursor.execute(
+                                    """
+                                    INSERT INTO crawler.crawl_agency_suggestions
+                                        (crawl_agency_id, operation_id, differences, state, created_at)
+                                    VALUES (%s, %s, %s, 'pending', NOW())
+                                    ON CONFLICT (crawl_agency_id, operation_id) DO UPDATE SET
+                                        differences = EXCLUDED.differences
+                                    """,
+                                    (agency[0], operation_id, Json(differences)),
+                                )
+                                continue
+
                         cursor.execute(
                             """
                             SELECT id FROM crawler.prospects
@@ -727,10 +766,32 @@ class PostgresOperationStore:
                                      automatic_reason, latest_operation_id, metadata,
                                      created_at, updated_at)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                                ON CONFLICT DO NOTHING
+                                RETURNING id
                                 """,
                                 values,
                             )
-                        else:
+                            inserted = cursor.fetchone()
+                            if inserted is None:
+                                cursor.execute(
+                                    """
+                                    SELECT id FROM crawler.prospects
+                                    WHERE (%s IS NOT NULL AND root_domain = %s)
+                                       OR (%s IS NOT NULL AND google_place_id = %s)
+                                    ORDER BY id LIMIT 1
+                                    FOR UPDATE
+                                    """,
+                                    (
+                                        prospect.get("root_domain"),
+                                        prospect.get("root_domain"),
+                                        prospect.get("google_place_id"),
+                                        prospect.get("google_place_id"),
+                                    ),
+                                )
+                                existing = cursor.fetchone()
+                            else:
+                                existing = inserted
+                        if existing is not None:
                             cursor.execute(
                                 """
                                 UPDATE crawler.prospects
@@ -743,6 +804,28 @@ class PostgresOperationStore:
                                 """,
                                 (*values, existing[0]),
                             )
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.prospect_operation_observations
+                                (prospect_id, operation_id, city, state,
+                                 automatic_classification, metadata, observed_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                            ON CONFLICT (prospect_id, operation_id) DO UPDATE SET
+                                city = EXCLUDED.city,
+                                state = EXCLUDED.state,
+                                automatic_classification = EXCLUDED.automatic_classification,
+                                metadata = EXCLUDED.metadata,
+                                observed_at = EXCLUDED.observed_at
+                            """,
+                            (
+                                existing[0],
+                                operation_id,
+                                prospect["city"],
+                                prospect["state"],
+                                prospect["automatic_classification"],
+                                Json(prospect.get("metadata", {})),
+                            ),
+                        )
 
                     candidate_count = sum(
                         prospect["automatic_classification"] == "candidate"
