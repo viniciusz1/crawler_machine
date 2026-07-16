@@ -296,6 +296,100 @@ class PostgresOperationStore:
                     if cursor.rowcount != 1:
                         raise RuntimeError("operation is terminal or owned by another worker")
 
+    def complete_validation(
+        self, operation_id: int, worker_key: str, report: dict[str, Any]
+    ) -> None:
+        with connect(self._config) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT operation.plan
+                        FROM crawler.operations AS operation
+                        JOIN crawler.worker_instances AS worker
+                          ON worker.id = operation.worker_instance_id
+                        WHERE operation.id = %s
+                          AND operation.state = 'running'
+                          AND worker.worker_key = %s
+                        FOR UPDATE
+                        """,
+                        (operation_id, worker_key),
+                    )
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("validation operation is terminal or owned by another worker")
+                    plan = row[0]
+
+                    cursor.execute(
+                        """
+                        INSERT INTO crawler.profile_validation_reports
+                            (operation_id, extraction_profile_id, sampled_url_count,
+                             valid_record_count, valid_ratio, required_field_coverage,
+                             blocking_failures, warnings, eligible, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                        RETURNING id
+                        """,
+                        (
+                            operation_id,
+                            plan["extraction_profile_id"],
+                            report["sampled_url_count"],
+                            report["valid_record_count"],
+                            report["valid_ratio"],
+                            Json(report["required_field_coverage"]),
+                            Json(report["blocking_failures"]),
+                            Json(report["warnings"]),
+                            report["eligible"],
+                        ),
+                    )
+                    report_id = cursor.fetchone()[0]
+
+                    records = report.get("records", [])
+                    if records:
+                        execute_values(
+                            cursor,
+                            """
+                            INSERT INTO crawler.profile_validation_records
+                                (profile_validation_report_id, url, raw_data,
+                                 normalized_data, errors, field_presence, is_valid,
+                                 created_at, updated_at)
+                            VALUES %s
+                            """,
+                            [
+                                (
+                                    report_id,
+                                    record["url"],
+                                    Json(record["raw_data"]),
+                                    Json(record["normalized_data"]),
+                                    Json(record["errors"]),
+                                    Json(record["field_presence"]),
+                                    record["is_valid"],
+                                )
+                                for record in records
+                            ],
+                            template="(%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())",
+                        )
+
+                    cursor.execute(
+                        """
+                        UPDATE crawler.operations
+                        SET state = 'succeeded', stage = 'completed',
+                            progress_percentage = 100,
+                            processed_items = %s, total_items = %s,
+                            progress_message = 'Profile validation report persisted',
+                            result = %s, completed_at = NOW(), lease_expires_at = NULL,
+                            updated_at = NOW()
+                        WHERE id = %s AND state = 'running'
+                        """,
+                        (
+                            report["sampled_url_count"],
+                            report["sampled_url_count"],
+                            Json({"profile_validation_report_id": report_id}),
+                            operation_id,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RuntimeError("validation operation is no longer owned")
+
     def fail(
         self, operation_id: int, worker_key: str, code: str, message: str
     ) -> None:

@@ -44,6 +44,10 @@ class OperationStore(Protocol):
         self, operation_id: int, worker_key: str, profile: dict[str, Any]
     ) -> None: ...
 
+    def complete_validation(
+        self, operation_id: int, worker_key: str, report: dict[str, Any]
+    ) -> None: ...
+
     def fail(
         self, operation_id: int, worker_key: str, code: str, message: str
     ) -> None: ...

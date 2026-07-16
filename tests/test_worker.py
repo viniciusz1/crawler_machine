@@ -13,6 +13,7 @@ class FakeOperationStore:
     completed: list[tuple[int, list[str]]] = field(default_factory=list)
     completed_suggestions: list[tuple[int, str | None]] = field(default_factory=list)
     completed_profiles: list[tuple[int, dict]] = field(default_factory=list)
+    completed_validations: list[tuple[int, dict]] = field(default_factory=list)
 
     def register_worker(self, worker_key: str, version: str, capacity: dict[str, int]) -> None:
         self.registration = (worker_key, version, capacity)
@@ -46,6 +47,11 @@ class FakeOperationStore:
     ) -> None:
         self.completed_profiles.append((operation_id, profile))
 
+    def complete_validation(
+        self, operation_id: int, worker_key: str, report: dict
+    ) -> None:
+        self.completed_validations.append((operation_id, report))
+
     def fail(self, operation_id: int, worker_key: str, code: str, message: str) -> None:
         raise AssertionError(f"unexpected failure: {code} {message}")
 
@@ -74,6 +80,21 @@ class FakeProfileGenerator:
             "strategies": ["xpath", "css"],
             "fields": fields,
             "parameters": {"generated_by": "fake"},
+        }
+
+
+class FakeValidationExecutor:
+    def run(self, plan: dict) -> dict:
+        assert len(plan["urls"]) == 2
+        return {
+            "sampled_url_count": 2,
+            "valid_record_count": 2,
+            "valid_ratio": 1.0,
+            "required_field_coverage": {"title": 1.0},
+            "blocking_failures": [],
+            "warnings": [],
+            "eligible": True,
+            "records": [],
         }
 
 
@@ -155,3 +176,30 @@ def test_worker_persists_immutable_candidate_profile() -> None:
     assert worker.run_once() is True
     assert store.completed_profiles[0][0] == 9
     assert store.completed_profiles[0][1]["strategies"] == ["xpath", "css"]
+
+
+def test_worker_persists_profile_validation_report() -> None:
+    store = FakeOperationStore(
+        ClaimedOperation(
+            id=10,
+            type="profile_validation",
+            crawl_agency_id=42,
+            plan={
+                "urls": [
+                    "https://agency.example.com/property/1",
+                    "https://agency.example.com/property/2",
+                ]
+            },
+        )
+    )
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        validation_executor=FakeValidationExecutor(),
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+    assert store.completed_validations[0][0] == 10
+    assert store.completed_validations[0][1]["eligible"] is True

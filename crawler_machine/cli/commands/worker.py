@@ -10,9 +10,14 @@ from crawler_machine.cli.app import app
 from crawler_machine.cli.helpers import load_config, load_env_file, setup_logging
 from crawler_machine.discoverer import URLDiscoverer
 from crawler_machine.sink.config import PostgresConfig
-from crawler_machine.worker.adapters import ExtractionProfileGenerator, HomeSampleFinderAdapter
+from crawler_machine.worker.adapters import (
+    ConfiguredProfileExtractor,
+    ExtractionProfileGenerator,
+    HomeSampleFinderAdapter,
+)
 from crawler_machine.worker.postgres_store import PostgresOperationStore
 from crawler_machine.worker.runner import CrawlerWorker
+from crawler_machine.worker.validation import ProfileValidationExecutor
 
 
 @app.command()
@@ -44,6 +49,9 @@ def worker(
         version=version,
         sample_finder=HomeSampleFinderAdapter(),
         profile_generator=ExtractionProfileGenerator(domain_config.llm),
+        validation_executor=ProfileValidationExecutor(
+            ConfiguredProfileExtractor(domain_config)
+        ),
     )
 
     while True:

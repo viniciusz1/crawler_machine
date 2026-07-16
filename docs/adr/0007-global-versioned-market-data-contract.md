@@ -1,0 +1,7 @@
+# Contrato de Dados de Mercado global e versionado
+
+Todas as Crawl Agencies produzem MarketProperties segundo um único Contrato de Dados de Mercado versionado, que define campos canônicos, tipos, obrigatoriedade e normalização. Perfis de Extração variam por Crawl Agency, mas apenas mapeiam seus sites para esse contrato; não podem redefinir o significado dos campos. Essa uniformidade limita customizações por fonte, mas mantém AI Searcher e Property Valuation sobre um modelo comparável e permite saber exatamente qual versão avaliou cada operação; mudanças incompatíveis exigem revalidação dos perfis afetados.
+
+O contrato faz parte do escopo inicial da interface de Platform Admin e segue o ciclo `draft -> validating -> active`. Uma versão ativa é imutável, não pode ser excluída e permanece referenciável pelas operações que a fixaram.
+
+A validação da versão classifica a mudança. Alterações apenas aditivas e opcionais preservam a validade dos perfis existentes. Uma mudança incompatível ou um novo campo obrigatório marca as Crawl Agencies afetadas como `revalidation_required`, suspende seus agendamentos e impede novas publicações até que seus perfis sejam revalidados. O estado administrativo da Crawl Agency e seu último Snapshot Publicado são preservados. Operações fixadas no contrato anterior podem concluir e manter seus artefatos, mas seus resultados não podem ser publicados depois da ativação incompatível.

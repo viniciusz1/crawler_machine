@@ -18,6 +18,7 @@ def build_crawl_engine(
     config: DomainConfig,
     schema: dict[str, Any],
     enable_llm_fallback: bool | None = None,
+    required_fields: set[str] | tuple[str, ...] | None = None,
 ) -> CrawlEngine:
     """Monta a CrawlEngine com a cadeia de fallback habilitada."""
     schemas = schema.get("schemas", {})
@@ -59,6 +60,6 @@ def build_crawl_engine(
 
     return CrawlEngine(
         config=config.crawler,
-        required_fields=REQUIRED_FIELDS,
+        required_fields=REQUIRED_FIELDS if required_fields is None else required_fields,
         strategies=strategies,
     )
