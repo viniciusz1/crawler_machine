@@ -48,6 +48,10 @@ class OperationStore(Protocol):
         self, operation_id: int, worker_key: str, report: dict[str, Any]
     ) -> None: ...
 
+    def complete_production_crawl(
+        self, operation_id: int, worker_key: str, result: dict[str, Any]
+    ) -> None: ...
+
     def fail(
         self, operation_id: int, worker_key: str, code: str, message: str
     ) -> None: ...

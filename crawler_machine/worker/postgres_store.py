@@ -390,6 +390,248 @@ class PostgresOperationStore:
                     if cursor.rowcount != 1:
                         raise RuntimeError("validation operation is no longer owned")
 
+    def complete_production_crawl(
+        self, operation_id: int, worker_key: str, result: dict[str, Any]
+    ) -> None:
+        with connect(self._config) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT operation.crawl_agency_id, operation.plan
+                        FROM crawler.operations AS operation
+                        JOIN crawler.worker_instances AS worker
+                          ON worker.id = operation.worker_instance_id
+                        WHERE operation.id = %s
+                          AND operation.state = 'running'
+                          AND worker.worker_key = %s
+                        FOR UPDATE
+                        """,
+                        (operation_id, worker_key),
+                    )
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise RuntimeError("production operation is terminal or owned by another worker")
+                    agency_id, plan = row
+                    discovery = result["discovery"]
+                    snapshot_id = discovery.get("snapshot_id")
+                    if discovery["mode"] == "fresh":
+                        urls = list(dict.fromkeys(discovery.get("urls", [])))
+                        content_hash = hashlib.sha256("\n".join(urls).encode()).hexdigest()
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.discovery_snapshots
+                                (operation_id, crawl_agency_id, url_count, content_hash, created_at)
+                            VALUES (%s, %s, %s, %s, NOW()) RETURNING id
+                            """,
+                            (operation_id, agency_id, len(urls), content_hash),
+                        )
+                        snapshot_id = cursor.fetchone()[0]
+                        if urls:
+                            execute_values(
+                                cursor,
+                                """
+                                INSERT INTO crawler.discovery_snapshot_urls
+                                    (discovery_snapshot_id, url, url_hash, created_at)
+                                VALUES %s
+                                """,
+                                [
+                                    (snapshot_id, url, hashlib.sha256(url.encode()).hexdigest())
+                                    for url in urls
+                                ],
+                                template="(%s, %s, %s, NOW())",
+                            )
+
+                    cursor.execute(
+                        """
+                        INSERT INTO crawler.crawl_runs
+                            (operation_id, crawl_agency_id, discovery_snapshot_id,
+                             extraction_profile_id, market_data_contract_version_id,
+                             quality_policy_version_id, technical_state, result_kind,
+                             publication_state, publishable, raw_count, normalized_count,
+                             rejected_count, error_count, error_summary, started_at,
+                             completed_at, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'candidate', %s,
+                                %s, %s, %s, %s, %s, COALESCE(
+                                    (SELECT claimed_at FROM crawler.operations WHERE id = %s), NOW()
+                                ), NOW(), NOW(), NOW())
+                        RETURNING id
+                        """,
+                        (
+                            operation_id,
+                            agency_id,
+                            snapshot_id,
+                            plan["extraction_profile"]["id"],
+                            plan["market_data_contract"]["id"],
+                            plan["quality_policy"]["id"],
+                            result["technical_state"],
+                            result["result_kind"],
+                            result["publishable"],
+                            len(result["raw_properties"]),
+                            len(result["market_properties"]),
+                            len(result["rejected_properties"]),
+                            len(result["errors"]),
+                            Json(result["errors"]),
+                            operation_id,
+                        ),
+                    )
+                    run_id = cursor.fetchone()[0]
+                    raw_ids: list[int] = []
+                    for raw in result["raw_properties"]:
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.raw_properties
+                                (crawler_run_id, url, payload, extraction_trace, errors, created_at)
+                            VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id
+                            """,
+                            (
+                                run_id,
+                                raw.get("url"),
+                                Json(raw["payload"]),
+                                Json(raw["extraction_trace"]),
+                                Json(raw["errors"]),
+                            ),
+                        )
+                        raw_ids.append(cursor.fetchone()[0])
+
+                    for market in result["market_properties"]:
+                        payload = market["payload"]
+                        raw_id = raw_ids[market["raw_index"]]
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.market_properties
+                                (crawler_run_id, raw_property_id, tipo, imobiliaria, valor,
+                                 bairro, cidade, imagem, link_imovel, descricao, quartos,
+                                 suites, banheiros, vagas, area, aceita_permuta, financiamento,
+                                 piscina, churrasqueira, academia, salao_festas, playground,
+                                 sacada, mobiliado, ar_condicionado, lavanderia, escritorio,
+                                 closet, elevador, portaria_24h, andar, posicao_solar,
+                                 ano_construcao, payload, normalization_warnings,
+                                 extraction_trace, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                            """,
+                            (
+                                run_id,
+                                raw_id,
+                                payload.get("tipo_imovel", payload.get("tipo")),
+                                payload.get("imobiliaria"),
+                                payload.get("valor"),
+                                payload.get("bairro"),
+                                payload.get("cidade"),
+                                payload.get("imagem"),
+                                payload.get("url", payload.get("link_imovel")),
+                                payload.get("descricao"),
+                                payload.get("quartos"),
+                                payload.get("suites"),
+                                payload.get("banheiros"),
+                                payload.get("vagas"),
+                                payload.get("area_util", payload.get("area")),
+                                payload.get("aceita_permuta"),
+                                payload.get("financiamento"),
+                                payload.get("piscina"),
+                                payload.get("churrasqueira"),
+                                payload.get("academia"),
+                                payload.get("salao_festas"),
+                                payload.get("playground"),
+                                payload.get("sacada"),
+                                payload.get("mobiliado"),
+                                payload.get("ar_condicionado"),
+                                payload.get("lavanderia"),
+                                payload.get("escritorio"),
+                                payload.get("closet"),
+                                payload.get("elevador"),
+                                payload.get("portaria_24h"),
+                                payload.get("andar"),
+                                payload.get("posicao_solar"),
+                                payload.get("ano", payload.get("ano_construcao")),
+                                Json(payload),
+                                Json(market["normalization_warnings"]),
+                                Json(market["extraction_trace"]),
+                            ),
+                        )
+
+                    for rejected in result["rejected_properties"]:
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.rejected_properties
+                                (crawler_run_id, raw_property_id, url, payload,
+                                 missing_fields, errors, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                            """,
+                            (
+                                run_id,
+                                raw_ids[rejected["raw_index"]],
+                                rejected.get("url"),
+                                Json(rejected["payload"]),
+                                Json(rejected["missing_fields"]),
+                                Json(rejected["errors"]),
+                            ),
+                        )
+
+                    for artifact in result.get("artifacts", []):
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.crawler_artifacts
+                                (crawler_run_id, kind, payload, created_at)
+                            VALUES (%s, %s, %s, NOW())
+                            """,
+                            (run_id, artifact["kind"], Json(artifact["payload"])),
+                        )
+                    for log in result.get("technical_logs", []):
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.technical_logs
+                                (crawler_run_id, level, stage, message, context, created_at)
+                            VALUES (%s, %s, %s, %s, %s, NOW())
+                            """,
+                            (
+                                run_id,
+                                log["level"],
+                                log.get("stage"),
+                                log["message"],
+                                Json(log.get("context", {})),
+                            ),
+                        )
+
+                    operation_state = (
+                        "succeeded" if result["technical_state"] == "succeeded" else "failed"
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE crawler.operations
+                        SET state = %s, stage = %s, progress_percentage = 100,
+                            processed_items = %s, total_items = %s,
+                            progress_message = %s, result = %s,
+                            error_code = %s, error_message = %s,
+                            completed_at = NOW(), lease_expires_at = NULL, updated_at = NOW()
+                        WHERE id = %s AND state = 'running'
+                        """,
+                        (
+                            operation_state,
+                            "completed" if operation_state == "succeeded" else "failed",
+                            len(result["raw_properties"]),
+                            len(discovery.get("urls", [])),
+                            "Production crawl persisted",
+                            Json(
+                                {
+                                    "crawl_run_id": run_id,
+                                    "discovery_snapshot_id": snapshot_id,
+                                    "result_kind": result["result_kind"],
+                                    "publication_state": "candidate",
+                                }
+                            ),
+                            None if operation_state == "succeeded" else "partial_crawl",
+                            None
+                            if operation_state == "succeeded"
+                            else "Production crawl failed after preserving partial results",
+                            operation_id,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RuntimeError("production operation is no longer owned")
+
     def fail(
         self, operation_id: int, worker_key: str, code: str, message: str
     ) -> None:

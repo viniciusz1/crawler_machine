@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import uuid
 
 import psycopg2
@@ -290,6 +291,82 @@ def test_worker_persists_profile_validation_evidence_atomically() -> None:
                     (operation_id,),
                 )
                 assert cursor.fetchone() == ("succeeded", True, "Raw")
+
+        with connection:
+            with connection.cursor() as cursor:
+                production_plan = {
+                    "crawl_agency_id": agency_id,
+                    "discovery": {"mode": "existing", "snapshot_id": snapshot_id},
+                    "extraction_profile": {"id": profile_id},
+                    "market_data_contract": {"id": contract_id},
+                    "quality_policy": {
+                        "id": cursor.execute(
+                            "SELECT id FROM crawler.quality_policy_versions WHERE status = 'active' LIMIT 1"
+                        )
+                        or cursor.fetchone()[0]
+                    },
+                }
+                cursor.execute(
+                    """
+                    INSERT INTO crawler.operations
+                        (type, state, requested_by, crawl_agency_id,
+                         market_data_contract_version_id, plan, created_at, updated_at)
+                    VALUES ('production_crawl', 'queued', %s, %s, %s, %s, NOW(), NOW())
+                    RETURNING id
+                    """,
+                    (user_id, agency_id, contract_id, json.dumps(production_plan)),
+                )
+                production_operation_id = cursor.fetchone()[0]
+
+        production_operation = store.claim(worker_key, ("production_crawl",))
+        assert production_operation is not None
+        assert production_operation.id == production_operation_id
+        store.complete_production_crawl(
+            production_operation_id,
+            worker_key,
+            {
+                "technical_state": "succeeded",
+                "result_kind": "full",
+                "publishable": True,
+                "discovery": {"mode": "existing", "snapshot_id": snapshot_id, "urls": []},
+                "raw_properties": [
+                    {
+                        "url": "https://example.com/property/1",
+                        "payload": {"url": "https://example.com/property/1", "valor": "200000"},
+                        "extraction_trace": {"valor": "xpath"},
+                        "errors": [],
+                    }
+                ],
+                "market_properties": [
+                    {
+                        "raw_index": 0,
+                        "payload": {"url": "https://example.com/property/1", "valor": 200000},
+                        "normalization_warnings": [],
+                        "extraction_trace": {"valor": "xpath"},
+                    }
+                ],
+                "rejected_properties": [],
+                "errors": [],
+                "artifacts": [{"kind": "execution_summary", "payload": {"normalized": 1}}],
+                "technical_logs": [
+                    {"level": "info", "stage": "completed", "message": "done", "context": {}}
+                ],
+            },
+        )
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT run.id, run.publication_state, market.payload->>'valor'
+                    FROM crawler.crawl_runs AS run
+                    JOIN crawler.market_properties AS market ON market.crawler_run_id = run.id
+                    WHERE run.operation_id = %s
+                    """,
+                    (production_operation_id,),
+                )
+                run_id, publication_state, persisted_value = cursor.fetchone()
+                assert publication_state == "candidate"
+                assert persisted_value == "200000"
     finally:
         with connection:
             with connection.cursor() as cursor:
@@ -301,6 +378,21 @@ def test_worker_persists_profile_validation_evidence_atomically() -> None:
                     "DELETE FROM crawler.profile_validation_reports WHERE operation_id = %s",
                     (locals().get("operation_id", -1),),
                 )
+                for table in (
+                    "technical_logs",
+                    "crawler_artifacts",
+                    "rejected_properties",
+                    "market_properties",
+                    "raw_properties",
+                ):
+                    cursor.execute(
+                        f"DELETE FROM crawler.{table} WHERE crawler_run_id = %s",
+                        (locals().get("run_id", -1),),
+                    )
+                cursor.execute(
+                    "DELETE FROM crawler.crawl_runs WHERE id = %s",
+                    (locals().get("run_id", -1),),
+                )
                 cursor.execute(
                     "DELETE FROM crawler.extraction_profiles WHERE id = %s",
                     (locals().get("profile_id", -1),),
@@ -310,9 +402,10 @@ def test_worker_persists_profile_validation_evidence_atomically() -> None:
                     (locals().get("snapshot_id", -1),),
                 )
                 cursor.execute(
-                    "DELETE FROM crawler.operations WHERE id IN (%s, %s, %s)",
+                    "DELETE FROM crawler.operations WHERE id IN (%s, %s, %s, %s)",
                     (
                         locals().get("operation_id", -1),
+                        locals().get("production_operation_id", -1),
                         locals().get("generation_operation_id", -1),
                         locals().get("discovery_operation_id", -1),
                     ),

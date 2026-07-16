@@ -1,0 +1,3 @@
+# Identidade estável de Crawl Agency sem compatibilidade com source_name
+
+Ao ser promovido, um Prospect cria uma Crawl Agency com identificador interno estável; operações, profiles, discoveries, snapshots e agendamentos referenciam esse identificador, nunca domínio, slug ou `source_name`. O domínio raiz continua único para deduplicação, mas pode mudar preservando responsável, data e motivo da alteração. Como ainda não existe ambiente de produção nem dados que exijam migração compatível, adotamos corte direto: removemos `source_name` do novo modelo e não manteremos alias, coluna legada, leitura dupla ou backfill de compatibilidade; ambientes existentes podem usar `migrate:fresh` durante a implementação.

@@ -14,6 +14,7 @@ class FakeOperationStore:
     completed_suggestions: list[tuple[int, str | None]] = field(default_factory=list)
     completed_profiles: list[tuple[int, dict]] = field(default_factory=list)
     completed_validations: list[tuple[int, dict]] = field(default_factory=list)
+    completed_production_crawls: list[tuple[int, dict]] = field(default_factory=list)
 
     def register_worker(self, worker_key: str, version: str, capacity: dict[str, int]) -> None:
         self.registration = (worker_key, version, capacity)
@@ -51,6 +52,11 @@ class FakeOperationStore:
         self, operation_id: int, worker_key: str, report: dict
     ) -> None:
         self.completed_validations.append((operation_id, report))
+
+    def complete_production_crawl(
+        self, operation_id: int, worker_key: str, result: dict
+    ) -> None:
+        self.completed_production_crawls.append((operation_id, result))
 
     def fail(self, operation_id: int, worker_key: str, code: str, message: str) -> None:
         raise AssertionError(f"unexpected failure: {code} {message}")
@@ -95,6 +101,23 @@ class FakeValidationExecutor:
             "warnings": [],
             "eligible": True,
             "records": [],
+        }
+
+
+class FakeProductionCrawlExecutor:
+    def run(self, plan: dict) -> dict:
+        assert plan["crawl_agency_id"] == 42
+        return {
+            "technical_state": "succeeded",
+            "result_kind": "full",
+            "publishable": True,
+            "discovery": {"mode": "existing", "snapshot_id": 5},
+            "raw_properties": [],
+            "market_properties": [],
+            "rejected_properties": [],
+            "errors": [],
+            "artifacts": [],
+            "technical_logs": [],
         }
 
 
@@ -203,3 +226,25 @@ def test_worker_persists_profile_validation_report() -> None:
     assert worker.run_once() is True
     assert store.completed_validations[0][0] == 10
     assert store.completed_validations[0][1]["eligible"] is True
+
+
+def test_worker_persists_production_crawl_without_publishing_it() -> None:
+    store = FakeOperationStore(
+        ClaimedOperation(
+            id=11,
+            type="production_crawl",
+            crawl_agency_id=42,
+            plan={"crawl_agency_id": 42},
+        )
+    )
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        production_crawl_executor=FakeProductionCrawlExecutor(),
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+    assert store.completed_production_crawls[0][0] == 11
+    assert store.completed_production_crawls[0][1]["publishable"] is True

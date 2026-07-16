@@ -16,6 +16,7 @@ from crawler_machine.worker.adapters import (
     HomeSampleFinderAdapter,
 )
 from crawler_machine.worker.postgres_store import PostgresOperationStore
+from crawler_machine.worker.production import ProductionCrawlExecutor
 from crawler_machine.worker.runner import CrawlerWorker
 from crawler_machine.worker.validation import ProfileValidationExecutor
 
@@ -42,15 +43,22 @@ def worker(
         raise typer.BadParameter("Defina todas as variáveis DB_* para executar o worker.")
     domain_config = load_config(config_path)
 
+    operation_store = PostgresOperationStore(config)
+    discoverer = URLDiscoverer()
+    profile_extractor = ConfiguredProfileExtractor(domain_config)
     runner = CrawlerWorker(
-        store=PostgresOperationStore(config),
-        discoverer=URLDiscoverer(),
+        store=operation_store,
+        discoverer=discoverer,
         worker_key=worker_key,
         version=version,
         sample_finder=HomeSampleFinderAdapter(),
         profile_generator=ExtractionProfileGenerator(domain_config.llm),
         validation_executor=ProfileValidationExecutor(
-            ConfiguredProfileExtractor(domain_config)
+            profile_extractor
+        ),
+        production_crawl_executor=ProductionCrawlExecutor(
+            discoverer=discoverer,
+            extractor=profile_extractor,
         ),
     )
 

@@ -21,6 +21,10 @@ class ValidationExecutor(Protocol):
     def run(self, plan: dict[str, Any]) -> dict[str, Any]: ...
 
 
+class ProductionCrawlExecutor(Protocol):
+    def run(self, plan: dict[str, Any]) -> dict[str, Any]: ...
+
+
 class CrawlerWorker:
     def __init__(
         self,
@@ -31,6 +35,7 @@ class CrawlerWorker:
         sample_finder: SampleFinder | None = None,
         profile_generator: ProfileGenerator | None = None,
         validation_executor: ValidationExecutor | None = None,
+        production_crawl_executor: ProductionCrawlExecutor | None = None,
     ) -> None:
         self._store = store
         self._discoverer = discoverer
@@ -38,10 +43,13 @@ class CrawlerWorker:
         self._sample_finder = sample_finder
         self._profile_generator = profile_generator
         self._validation_executor = validation_executor
+        self._production_crawl_executor = production_crawl_executor
         self._supported_types = ("discovery",) + (
             ("sample_url_suggestion",) if sample_finder is not None else ()
         ) + (("profile_generation",) if profile_generator is not None else ()) + (
             ("profile_validation",) if validation_executor is not None else ()
+        ) + (
+            ("production_crawl",) if production_crawl_executor is not None else ()
         )
         self._store.register_worker(worker_key, version, {"concurrency": 1})
 
@@ -88,6 +96,11 @@ class CrawlerWorker:
             elif operation.type == "profile_validation" and self._validation_executor:
                 report = self._validation_executor.run(operation.plan)
                 self._store.complete_validation(operation.id, self._worker_key, report)
+            elif operation.type == "production_crawl" and self._production_crawl_executor:
+                result = self._production_crawl_executor.run(operation.plan)
+                self._store.complete_production_crawl(
+                    operation.id, self._worker_key, result
+                )
             else:
                 raise RuntimeError(f"unsupported operation type: {operation.type}")
         except Exception as exception:
