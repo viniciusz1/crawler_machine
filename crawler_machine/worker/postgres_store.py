@@ -48,6 +48,15 @@ class PostgresOperationStore:
                             SELECT id
                             FROM crawler.operations
                             WHERE state = 'queued' AND type = ANY(%s)
+                              AND (
+                                type <> 'production_crawl'
+                                OR NOT EXISTS (
+                                    SELECT 1 FROM crawler.operations AS active
+                                    WHERE active.type = 'production_crawl'
+                                      AND active.crawl_agency_id = crawler.operations.crawl_agency_id
+                                      AND active.state IN ('running', 'cancellation_requested')
+                                )
+                              )
                             ORDER BY created_at, id
                             FOR UPDATE SKIP LOCKED
                             LIMIT 1
@@ -403,7 +412,7 @@ class PostgresOperationStore:
                         JOIN crawler.worker_instances AS worker
                           ON worker.id = operation.worker_instance_id
                         WHERE operation.id = %s
-                          AND operation.state = 'running'
+                          AND operation.state IN ('running', 'cancellation_requested')
                           AND worker.worker_key = %s
                         FOR UPDATE
                         """,
@@ -595,9 +604,10 @@ class PostgresOperationStore:
                             ),
                         )
 
-                    operation_state = (
-                        "succeeded" if result["technical_state"] == "succeeded" else "failed"
-                    )
+                    operation_state = {
+                        "succeeded": "succeeded",
+                        "cancelled": "cancelled",
+                    }.get(result["technical_state"], "failed")
                     cursor.execute(
                         """
                         UPDATE crawler.operations
@@ -606,11 +616,11 @@ class PostgresOperationStore:
                             progress_message = %s, result = %s,
                             error_code = %s, error_message = %s,
                             completed_at = NOW(), lease_expires_at = NULL, updated_at = NOW()
-                        WHERE id = %s AND state = 'running'
+                        WHERE id = %s AND state IN ('running', 'cancellation_requested')
                         """,
                         (
                             operation_state,
-                            "completed" if operation_state == "succeeded" else "failed",
+                            "completed" if operation_state == "succeeded" else operation_state,
                             len(result["raw_properties"]),
                             len(discovery.get("urls", [])),
                             "Production crawl persisted",
@@ -622,15 +632,60 @@ class PostgresOperationStore:
                                     "publication_state": "candidate",
                                 }
                             ),
-                            None if operation_state == "succeeded" else "partial_crawl",
+                            None if operation_state == "succeeded" else (
+                                "cancelled_by_operator"
+                                if operation_state == "cancelled"
+                                else "partial_crawl"
+                            ),
                             None
                             if operation_state == "succeeded"
-                            else "Production crawl failed after preserving partial results",
+                            else (
+                                "Production crawl cancelled after preserving partial results"
+                                if operation_state == "cancelled"
+                                else "Production crawl failed after preserving partial results"
+                            ),
                             operation_id,
                         ),
                     )
                     if cursor.rowcount != 1:
                         raise RuntimeError("production operation is no longer owned")
+
+    def cancellation_requested(self, operation_id: int, worker_key: str) -> bool:
+        with connect(self._config) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT operation.state = 'cancellation_requested'
+                    FROM crawler.operations AS operation
+                    JOIN crawler.worker_instances AS worker
+                      ON worker.id = operation.worker_instance_id
+                    WHERE operation.id = %s AND worker.worker_key = %s
+                    """,
+                    (operation_id, worker_key),
+                )
+                row = cursor.fetchone()
+                return bool(row and row[0])
+
+    def cancel(self, operation_id: int, worker_key: str) -> None:
+        with connect(self._config) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE crawler.operations AS operation
+                        SET state = 'cancelled', stage = 'cancelled',
+                            progress_message = 'Cancelled cooperatively by worker',
+                            completed_at = NOW(), lease_expires_at = NULL, updated_at = NOW()
+                        WHERE operation.id = %s
+                          AND operation.state IN ('running', 'cancellation_requested')
+                          AND operation.worker_instance_id = (
+                              SELECT id FROM crawler.worker_instances WHERE worker_key = %s
+                          )
+                        """,
+                        (operation_id, worker_key),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RuntimeError("operation is no longer cancellable by this worker")
 
     def fail(
         self, operation_id: int, worker_key: str, code: str, message: str

@@ -15,6 +15,8 @@ class FakeOperationStore:
     completed_profiles: list[tuple[int, dict]] = field(default_factory=list)
     completed_validations: list[tuple[int, dict]] = field(default_factory=list)
     completed_production_crawls: list[tuple[int, dict]] = field(default_factory=list)
+    cancellation_requests: set[int] = field(default_factory=set)
+    cancelled: list[int] = field(default_factory=list)
 
     def register_worker(self, worker_key: str, version: str, capacity: dict[str, int]) -> None:
         self.registration = (worker_key, version, capacity)
@@ -57,6 +59,12 @@ class FakeOperationStore:
         self, operation_id: int, worker_key: str, result: dict
     ) -> None:
         self.completed_production_crawls.append((operation_id, result))
+
+    def cancellation_requested(self, operation_id: int, worker_key: str) -> bool:
+        return operation_id in self.cancellation_requests
+
+    def cancel(self, operation_id: int, worker_key: str) -> None:
+        self.cancelled.append(operation_id)
 
     def fail(self, operation_id: int, worker_key: str, code: str, message: str) -> None:
         raise AssertionError(f"unexpected failure: {code} {message}")
@@ -105,7 +113,7 @@ class FakeValidationExecutor:
 
 
 class FakeProductionCrawlExecutor:
-    def run(self, plan: dict) -> dict:
+    def run(self, plan: dict, should_cancel) -> dict:
         assert plan["crawl_agency_id"] == 42
         return {
             "technical_state": "succeeded",
@@ -248,3 +256,20 @@ def test_worker_persists_production_crawl_without_publishing_it() -> None:
     assert worker.run_once() is True
     assert store.completed_production_crawls[0][0] == 11
     assert store.completed_production_crawls[0][1]["publishable"] is True
+
+
+def test_worker_honors_cancellation_before_starting_expensive_work() -> None:
+    store = FakeOperationStore(
+        ClaimedOperation(id=12, type="discovery", crawl_agency_id=42, plan={"base_url": "https://agency.example.com"}),
+        cancellation_requests={12},
+    )
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+    assert store.cancelled == [12]
+    assert store.completed == []

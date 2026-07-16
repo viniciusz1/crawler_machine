@@ -129,3 +129,29 @@ def test_fatal_failure_preserves_partial_rows_and_never_marks_them_publishable()
     assert result["publishable"] is False
     assert len(result["raw_properties"]) == 1
     assert result["errors"][0]["message"] == "browser crashed"
+
+
+def test_cooperative_cancellation_stops_between_urls_and_preserves_partial_data() -> None:
+    checks = iter([False, True])
+    result = ProductionCrawlExecutor(
+        discoverer=FakeDiscoverer(),
+        extractor=FakeExtractor(),
+        normalizer=FakeNormalizer(),
+    ).run(
+        _plan(
+            {
+                "mode": "existing",
+                "snapshot_id": 5,
+                "urls": [
+                    "https://agency.example.com/property/1",
+                    "https://agency.example.com/property/2",
+                ],
+            }
+        ),
+        should_cancel=lambda: next(checks),
+    )
+
+    assert result["technical_state"] == "cancelled"
+    assert result["result_kind"] == "partial"
+    assert result["publishable"] is False
+    assert len(result["raw_properties"]) == 1

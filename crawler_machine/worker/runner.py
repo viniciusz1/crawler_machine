@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from crawler_machine.worker.store import OperationStore
@@ -22,7 +23,9 @@ class ValidationExecutor(Protocol):
 
 
 class ProductionCrawlExecutor(Protocol):
-    def run(self, plan: dict[str, Any]) -> dict[str, Any]: ...
+    def run(
+        self, plan: dict[str, Any], should_cancel: Callable[[], bool]
+    ) -> dict[str, Any]: ...
 
 
 class CrawlerWorker:
@@ -58,6 +61,10 @@ class CrawlerWorker:
         if operation is None:
             return False
 
+        if self._store.cancellation_requested(operation.id, self._worker_key):
+            self._store.cancel(operation.id, self._worker_key)
+            return True
+
         try:
             self._store.heartbeat(
                 operation.id,
@@ -70,6 +77,8 @@ class CrawlerWorker:
             )
             if operation.type == "discovery":
                 urls = self._discoverer.discover_sync(str(operation.plan["base_url"]))
+                if self._cancel_if_requested(operation.id):
+                    return True
                 self._store.heartbeat(
                     operation.id,
                     self._worker_key,
@@ -82,6 +91,8 @@ class CrawlerWorker:
                 self._store.complete_discovery(operation.id, self._worker_key, urls)
             elif operation.type == "sample_url_suggestion" and self._sample_finder:
                 sample_url = self._sample_finder.find(str(operation.plan["base_url"]))
+                if self._cancel_if_requested(operation.id):
+                    return True
                 self._store.complete_sample_suggestion(
                     operation.id, self._worker_key, sample_url
                 )
@@ -92,18 +103,29 @@ class CrawlerWorker:
                     str(operation.plan["sample_url"]),
                     list(operation.plan["contract_fields"]),
                 )
+                if self._cancel_if_requested(operation.id):
+                    return True
                 self._store.complete_profile(operation.id, self._worker_key, profile)
             elif operation.type == "profile_validation" and self._validation_executor:
                 report = self._validation_executor.run(operation.plan)
+                if self._cancel_if_requested(operation.id):
+                    return True
                 self._store.complete_validation(operation.id, self._worker_key, report)
             elif operation.type == "production_crawl" and self._production_crawl_executor:
-                result = self._production_crawl_executor.run(operation.plan)
+                result = self._production_crawl_executor.run(
+                    operation.plan,
+                    lambda: self._store.cancellation_requested(
+                        operation.id, self._worker_key
+                    ),
+                )
                 self._store.complete_production_crawl(
                     operation.id, self._worker_key, result
                 )
             else:
                 raise RuntimeError(f"unsupported operation type: {operation.type}")
         except Exception as exception:
+            if self._cancel_if_requested(operation.id):
+                return True
             self._store.fail(
                 operation.id,
                 self._worker_key,
@@ -111,4 +133,10 @@ class CrawlerWorker:
                 str(exception),
             )
 
+        return True
+
+    def _cancel_if_requested(self, operation_id: int) -> bool:
+        if not self._store.cancellation_requested(operation_id, self._worker_key):
+            return False
+        self._store.cancel(operation_id, self._worker_key)
         return True

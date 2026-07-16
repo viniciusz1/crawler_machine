@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from crawler_machine.normalization.engine import DataNormalizer
@@ -21,7 +22,11 @@ class ProductionCrawlExecutor:
         self._extractor = extractor
         self._normalizer = normalizer or DataNormalizer()
 
-    def run(self, plan: dict[str, Any]) -> dict[str, Any]:
+    def run(
+        self,
+        plan: dict[str, Any],
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
         discovery = dict(plan["discovery"])
         raw_properties: list[dict[str, Any]] = []
         market_properties: list[dict[str, Any]] = []
@@ -29,6 +34,8 @@ class ProductionCrawlExecutor:
         errors: list[dict[str, Any]] = []
         technical_logs: list[dict[str, Any]] = []
         fatal = False
+        cancelled = False
+        cancellation_check = should_cancel or (lambda: False)
 
         try:
             urls = (
@@ -51,6 +58,9 @@ class ProductionCrawlExecutor:
         ]
 
         for url in urls:
+            if cancellation_check():
+                cancelled = True
+                break
             try:
                 extracted, extraction_errors = self._extractor.extract(url, schemas, fields)
             except Exception as exception:
@@ -114,7 +124,7 @@ class ProductionCrawlExecutor:
                 }
             )
 
-        technical_state = "failed" if fatal else "succeeded"
+        technical_state = "cancelled" if cancelled else ("failed" if fatal else "succeeded")
         publishable = technical_state == "succeeded" and bool(market_properties)
         technical_logs.append(
             {
@@ -127,7 +137,7 @@ class ProductionCrawlExecutor:
 
         return {
             "technical_state": technical_state,
-            "result_kind": "partial" if fatal else "full",
+            "result_kind": "partial" if fatal or cancelled else "full",
             "publishable": publishable,
             "discovery": discovery,
             "raw_properties": raw_properties,
