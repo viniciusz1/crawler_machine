@@ -650,6 +650,131 @@ class PostgresOperationStore:
                     if cursor.rowcount != 1:
                         raise RuntimeError("production operation is no longer owned")
 
+    def known_prospect_domains(self) -> set[str]:
+        with connect(self._config) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT root_domain FROM crawler.prospects WHERE root_domain IS NOT NULL
+                    UNION
+                    SELECT root_domain FROM crawler.crawl_agencies
+                    """
+                )
+                return {str(row[0]) for row in cursor.fetchall()}
+
+    def complete_prospecting(
+        self,
+        operation_id: int,
+        worker_key: str,
+        prospects: list[dict[str, Any]],
+    ) -> None:
+        with connect(self._config) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT 1
+                        FROM crawler.operations AS operation
+                        JOIN crawler.worker_instances AS worker
+                          ON worker.id = operation.worker_instance_id
+                        WHERE operation.id = %s AND operation.state = 'running'
+                          AND worker.worker_key = %s
+                        FOR UPDATE
+                        """,
+                        (operation_id, worker_key),
+                    )
+                    if cursor.fetchone() is None:
+                        raise RuntimeError("prospecting operation is no longer owned")
+
+                    for prospect in prospects:
+                        cursor.execute(
+                            """
+                            SELECT id FROM crawler.prospects
+                            WHERE (%s IS NOT NULL AND root_domain = %s)
+                               OR (%s IS NOT NULL AND google_place_id = %s)
+                            ORDER BY id LIMIT 1
+                            FOR UPDATE
+                            """,
+                            (
+                                prospect.get("root_domain"),
+                                prospect.get("root_domain"),
+                                prospect.get("google_place_id"),
+                                prospect.get("google_place_id"),
+                            ),
+                        )
+                        existing = cursor.fetchone()
+                        values = (
+                            prospect.get("root_domain"),
+                            prospect.get("google_place_id"),
+                            prospect["name"],
+                            prospect["city"],
+                            prospect["state"],
+                            prospect.get("base_url"),
+                            prospect.get("phone"),
+                            prospect.get("address"),
+                            prospect.get("source", "google_places"),
+                            prospect["automatic_classification"],
+                            prospect.get("automatic_reason"),
+                            operation_id,
+                            Json(prospect.get("metadata", {})),
+                        )
+                        if existing is None:
+                            cursor.execute(
+                                """
+                                INSERT INTO crawler.prospects
+                                    (root_domain, google_place_id, name, city, state, base_url,
+                                     phone, address, source, automatic_classification,
+                                     automatic_reason, latest_operation_id, metadata,
+                                     created_at, updated_at)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                                """,
+                                values,
+                            )
+                        else:
+                            cursor.execute(
+                                """
+                                UPDATE crawler.prospects
+                                SET root_domain = %s, google_place_id = %s, name = %s,
+                                    city = %s, state = %s, base_url = %s, phone = %s,
+                                    address = %s, source = %s, automatic_classification = %s,
+                                    automatic_reason = %s, latest_operation_id = %s,
+                                    metadata = %s, updated_at = NOW()
+                                WHERE id = %s
+                                """,
+                                (*values, existing[0]),
+                            )
+
+                    candidate_count = sum(
+                        prospect["automatic_classification"] == "candidate"
+                        for prospect in prospects
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE crawler.operations
+                        SET state = 'succeeded', stage = 'completed',
+                            progress_percentage = 100, processed_items = %s,
+                            total_items = %s, progress_message = 'Prospecting results persisted',
+                            result = %s, completed_at = NOW(), lease_expires_at = NULL,
+                            updated_at = NOW()
+                        WHERE id = %s AND state = 'running'
+                        """,
+                        (
+                            len(prospects),
+                            len(prospects),
+                            Json(
+                                {
+                                    "prospect_count": len(prospects),
+                                    "candidate_count": candidate_count,
+                                    "rejected_count": len(prospects)
+                                    - candidate_count,
+                                }
+                            ),
+                            operation_id,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise RuntimeError("prospecting operation is no longer owned")
+
     def cancellation_requested(self, operation_id: int, worker_key: str) -> bool:
         with connect(self._config) as connection:
             with connection.cursor() as cursor:

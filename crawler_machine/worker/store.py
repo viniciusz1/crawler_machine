@@ -8,7 +8,7 @@ from typing import Any, Protocol
 class ClaimedOperation:
     id: int
     type: str
-    crawl_agency_id: int
+    crawl_agency_id: int | None
     plan: dict[str, Any]
 
 
@@ -50,6 +50,12 @@ class OperationStore(Protocol):
 
     def complete_production_crawl(
         self, operation_id: int, worker_key: str, result: dict[str, Any]
+    ) -> None: ...
+
+    def known_prospect_domains(self) -> set[str]: ...
+
+    def complete_prospecting(
+        self, operation_id: int, worker_key: str, prospects: list[dict[str, Any]]
     ) -> None: ...
 
     def cancellation_requested(self, operation_id: int, worker_key: str) -> bool: ...

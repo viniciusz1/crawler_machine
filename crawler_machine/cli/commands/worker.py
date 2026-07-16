@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import socket
 import time
 from pathlib import Path
@@ -9,6 +10,7 @@ import typer
 from crawler_machine.cli.app import app
 from crawler_machine.cli.helpers import load_config, load_env_file, setup_logging
 from crawler_machine.discoverer import URLDiscoverer
+from crawler_machine.prospecting.places import GooglePlacesGateway
 from crawler_machine.sink.config import PostgresConfig
 from crawler_machine.worker.adapters import (
     ConfiguredProfileExtractor,
@@ -17,6 +19,7 @@ from crawler_machine.worker.adapters import (
 )
 from crawler_machine.worker.postgres_store import PostgresOperationStore
 from crawler_machine.worker.production import ProductionCrawlExecutor
+from crawler_machine.worker.prospecting import ProspectingExecutor
 from crawler_machine.worker.runner import CrawlerWorker
 from crawler_machine.worker.validation import ProfileValidationExecutor
 
@@ -46,6 +49,7 @@ def worker(
     operation_store = PostgresOperationStore(config)
     discoverer = URLDiscoverer()
     profile_extractor = ConfiguredProfileExtractor(domain_config)
+    places_api_key = os.environ.get("GOOGLE_PLACES_API_KEY")
     runner = CrawlerWorker(
         store=operation_store,
         discoverer=discoverer,
@@ -59,6 +63,11 @@ def worker(
         production_crawl_executor=ProductionCrawlExecutor(
             discoverer=discoverer,
             extractor=profile_extractor,
+        ),
+        prospecting_executor=(
+            ProspectingExecutor(GooglePlacesGateway(places_api_key))
+            if places_api_key
+            else None
         ),
     )
 

@@ -28,6 +28,12 @@ class ProductionCrawlExecutor(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class ProspectingExecutor(Protocol):
+    def run(
+        self, plan: dict[str, Any], known_domains: set[str]
+    ) -> list[dict[str, Any]]: ...
+
+
 class CrawlerWorker:
     def __init__(
         self,
@@ -39,6 +45,7 @@ class CrawlerWorker:
         profile_generator: ProfileGenerator | None = None,
         validation_executor: ValidationExecutor | None = None,
         production_crawl_executor: ProductionCrawlExecutor | None = None,
+        prospecting_executor: ProspectingExecutor | None = None,
     ) -> None:
         self._store = store
         self._discoverer = discoverer
@@ -47,12 +54,15 @@ class CrawlerWorker:
         self._profile_generator = profile_generator
         self._validation_executor = validation_executor
         self._production_crawl_executor = production_crawl_executor
+        self._prospecting_executor = prospecting_executor
         self._supported_types = ("discovery",) + (
             ("sample_url_suggestion",) if sample_finder is not None else ()
         ) + (("profile_generation",) if profile_generator is not None else ()) + (
             ("profile_validation",) if validation_executor is not None else ()
         ) + (
             ("production_crawl",) if production_crawl_executor is not None else ()
+        ) + (
+            ("prospecting",) if prospecting_executor is not None else ()
         )
         self._store.register_worker(worker_key, version, {"concurrency": 1})
 
@@ -121,6 +131,15 @@ class CrawlerWorker:
                 self._store.complete_production_crawl(
                     operation.id, self._worker_key, result
                 )
+            elif operation.type == "prospecting" and self._prospecting_executor:
+                prospects = self._prospecting_executor.run(
+                    operation.plan, self._store.known_prospect_domains()
+                )
+                if self._cancel_if_requested(operation.id):
+                    return True
+                self._store.complete_prospecting(
+                    operation.id, self._worker_key, prospects
+                )
             else:
                 raise RuntimeError(f"unsupported operation type: {operation.type}")
         except Exception as exception:
@@ -129,7 +148,7 @@ class CrawlerWorker:
             self._store.fail(
                 operation.id,
                 self._worker_key,
-                "discovery_failed",
+                f"{operation.type}_failed",
                 str(exception),
             )
 

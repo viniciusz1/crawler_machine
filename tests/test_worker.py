@@ -15,6 +15,7 @@ class FakeOperationStore:
     completed_profiles: list[tuple[int, dict]] = field(default_factory=list)
     completed_validations: list[tuple[int, dict]] = field(default_factory=list)
     completed_production_crawls: list[tuple[int, dict]] = field(default_factory=list)
+    completed_prospecting: list[tuple[int, list[dict]]] = field(default_factory=list)
     cancellation_requests: set[int] = field(default_factory=set)
     cancelled: list[int] = field(default_factory=list)
 
@@ -59,6 +60,14 @@ class FakeOperationStore:
         self, operation_id: int, worker_key: str, result: dict
     ) -> None:
         self.completed_production_crawls.append((operation_id, result))
+
+    def known_prospect_domains(self) -> set[str]:
+        return {"known.example.com"}
+
+    def complete_prospecting(
+        self, operation_id: int, worker_key: str, prospects: list[dict]
+    ) -> None:
+        self.completed_prospecting.append((operation_id, prospects))
 
     def cancellation_requested(self, operation_id: int, worker_key: str) -> bool:
         return operation_id in self.cancellation_requests
@@ -127,6 +136,36 @@ class FakeProductionCrawlExecutor:
             "artifacts": [],
             "technical_logs": [],
         }
+
+
+class FakeProspectingExecutor:
+    def run(self, plan: dict, known_domains: set[str]) -> list[dict]:
+        assert plan["city"] == "Joinville"
+        assert known_domains == {"known.example.com"}
+        return [{"root_domain": "new.example.com", "automatic_classification": "candidate"}]
+
+
+def test_worker_persists_prospecting_results_from_gateway_executor() -> None:
+    store = FakeOperationStore(
+        ClaimedOperation(
+            id=13,
+            type="prospecting",
+            crawl_agency_id=None,
+            plan={"city": "Joinville", "state": "SC"},
+        )
+    )
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        prospecting_executor=FakeProspectingExecutor(),
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+    assert store.completed_prospecting == [
+        (13, [{"root_domain": "new.example.com", "automatic_classification": "candidate"}])
+    ]
 
 
 def test_worker_claims_and_completes_discovery_operation() -> None:

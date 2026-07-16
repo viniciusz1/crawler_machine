@@ -124,6 +124,125 @@ def test_worker_claims_and_persists_discovery_in_laravel_schema() -> None:
         connection.close()
 
 
+def test_worker_persists_prospects_without_overwriting_human_review() -> None:
+    config = PostgresConfig.from_env()
+    assert config is not None
+    suffix = uuid.uuid4().hex[:12]
+    connection = psycopg2.connect(
+        host=config.host,
+        port=config.port,
+        dbname=config.database,
+        user=config.user,
+        password=config.password,
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT to_regclass('crawler.prospects')")
+        if cursor.fetchone()[0] is None:
+            connection.close()
+            pytest.skip("Laravel prospect migrations are not installed")
+
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO users (name, email, phone, person_type, username, password, created_at, updated_at)
+                    VALUES ('Prospect Contract', %s, '0000000000', 'F', %s, 'test', NOW(), NOW())
+                    RETURNING id
+                    """,
+                    (f"prospect-{suffix}@example.com", f"prospect-{suffix}"),
+                )
+                user_id = cursor.fetchone()[0]
+                cursor.execute(
+                    """
+                    INSERT INTO crawler.operations
+                        (type, state, requested_by, plan, created_at, updated_at)
+                    VALUES ('prospecting', 'queued', %s, '{"city":"Joinville","state":"SC"}', NOW(), NOW())
+                    RETURNING id
+                    """,
+                    (user_id,),
+                )
+                operation_id = cursor.fetchone()[0]
+                cursor.execute(
+                    """
+                    INSERT INTO crawler.prospects
+                        (root_domain, google_place_id, name, city, state, base_url, source,
+                         automatic_classification, review_state, reviewed_by, reviewed_at,
+                         review_reason, metadata, created_at, updated_at)
+                    VALUES (%s, %s, 'Reviewed Agency', 'Joinville', 'SC', %s, 'google_places',
+                            'candidate', 'approved', %s, NOW(), 'Human approval remains', '{}', NOW(), NOW())
+                    RETURNING id
+                    """,
+                    (
+                        f"reviewed-{suffix}.com.br",
+                        f"reviewed-{suffix}",
+                        f"https://reviewed-{suffix}.com.br",
+                        user_id,
+                    ),
+                )
+                reviewed_id = cursor.fetchone()[0]
+
+        store = PostgresOperationStore(config)
+        worker_key = f"prospect-worker-{suffix}"
+        store.register_worker(worker_key, "test", {"concurrency": 1})
+        operation = store.claim(worker_key, ("prospecting",))
+        assert operation is not None
+        store.complete_prospecting(
+            operation.id,
+            worker_key,
+            [
+                {
+                    "root_domain": f"reviewed-{suffix}.com.br",
+                    "google_place_id": f"reviewed-{suffix}",
+                    "name": "Automatically Reclassified",
+                    "city": "Joinville",
+                    "state": "SC",
+                    "base_url": f"https://reviewed-{suffix}.com.br",
+                    "source": "google_places",
+                    "automatic_classification": "rejected",
+                    "automatic_reason": "automatic_check",
+                    "metadata": {"fresh": True},
+                }
+            ],
+        )
+
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT review_state, review_reason, automatic_classification,
+                           latest_operation_id
+                    FROM crawler.prospects WHERE id = %s
+                    """,
+                    (reviewed_id,),
+                )
+                assert cursor.fetchone() == (
+                    "approved",
+                    "Human approval remains",
+                    "rejected",
+                    operation_id,
+                )
+    finally:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM crawler.prospects WHERE id = %s",
+                    (locals().get("reviewed_id", -1),),
+                )
+                cursor.execute(
+                    "DELETE FROM crawler.operations WHERE id = %s",
+                    (locals().get("operation_id", -1),),
+                )
+                cursor.execute(
+                    "DELETE FROM crawler.worker_instances WHERE worker_key = %s",
+                    (locals().get("worker_key", "missing"),),
+                )
+                cursor.execute(
+                    "DELETE FROM users WHERE id = %s", (locals().get("user_id", -1),)
+                )
+        connection.close()
+
+
 def test_worker_persists_profile_validation_evidence_atomically() -> None:
     config = PostgresConfig.from_env()
     assert config is not None

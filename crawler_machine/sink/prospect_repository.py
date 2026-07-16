@@ -23,20 +23,17 @@ class PostgresProspectRepository(ProspectRepository):
 
     _COLUMNS = (
         "root_domain",
-        "source_name",
-        "base_url",
         "google_place_id",
         "name",
         "city",
         "state",
-        "status",
-        "reject_reason",
+        "base_url",
         "phone",
         "address",
-        "place_payload",
-        "prospecting_run_id",
-        "created_at",
-        "updated_at",
+        "source",
+        "automatic_classification",
+        "automatic_reason",
+        "metadata",
     )
 
     def __init__(self, config: PostgresConfig) -> None:
@@ -92,23 +89,21 @@ class PostgresProspectRepository(ProspectRepository):
             "google_place_id": candidate.google_place_id,
             "phone": candidate.phone,
             "address": candidate.address,
+            "prospecting_run_id": run_id,
         }
         return (
-            root_domain(candidate.base_url or ""),
-            candidate.source_name or "",
-            candidate.base_url,
+            root_domain(candidate.base_url or "") or None,
             candidate.google_place_id or "",
             candidate.name,
             candidate.city,
             candidate.state,
-            candidate.status,
-            candidate.reject_reason,
+            candidate.base_url,
             candidate.phone,
             candidate.address,
+            candidate.source,
+            candidate.status,
+            candidate.reject_reason,
             json.dumps(payload, ensure_ascii=False),
-            run_id,
-            "NOW()",
-            "NOW()",
         )
 
     def _upsert_rows(self, rows: list[tuple[Any, ...]]) -> None:
@@ -117,13 +112,13 @@ class PostgresProspectRepository(ProspectRepository):
         update_columns = ", ".join(
             f"{col} = EXCLUDED.{col}"
             for col in self._COLUMNS
-            if col not in ("root_domain", "created_at")
+            if col != "root_domain"
         )
         query = f"""
-            INSERT INTO crawler.prospects ({columns})
-            VALUES ({placeholders})
+            INSERT INTO crawler.prospects ({columns}, created_at, updated_at)
+            VALUES ({placeholders}, NOW(), NOW())
             ON CONFLICT (root_domain) DO UPDATE SET
-                {update_columns}
+                {update_columns}, updated_at = NOW()
         """
         with connect(self._config) as connection:
             with connection:
