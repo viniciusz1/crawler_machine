@@ -52,6 +52,31 @@ DB_PASSWORD=password
 
 Os campos padrão a serem extraídos e as configurações globais de LLM/crawler continuam em `config/domain.json`, servindo de base para a geração de schemas. O `source_name` usado no banco deve ser escolhido de forma consistente para cada imobiliária.
 
+## Fluxo pela interface administrativa
+
+A Admin Area em `http://localhost:3000/admin/crawler` cria e acompanha operações; ela não executa o scraping dentro do navegador. Um worker do Crawler Machine precisa estar ativo para reivindicar as operações enfileiradas no Postgres.
+
+Com o backend e o frontend em execução (`./start.sh` na raiz do repositório), inicie o worker em outro terminal:
+
+```bash
+cd crawler-machine
+source .venv/bin/activate
+python -m crawler_machine worker --worker-key local-dev --version dev
+```
+
+O arquivo `.env` do Crawler Machine deve ter as variáveis `DB_*` configuradas para o Postgres da aplicação. No ambiente local padrão, use `DB_HOST=localhost` e `DB_PORT=7777`.
+
+### Onboarding de uma nova Crawl Agency
+
+1. Em **Configurações**, ative um **Contrato de Dados de Mercado** e uma **Política de Qualidade**.
+2. Em **Crawl Agencies**, cadastre a imobiliária.
+3. Em **Operações → Novo Discovery**, selecione a Crawl Agency e o contrato ativo e clique em **Enfileirar Discovery**.
+4. Ao terminar, abra o detalhe da Crawl Agency. Em **Onboarding**, use **Sugerir pela home** (ou informe uma URL de imóvel), confirme a URL e clique em **Gerar Perfil Candidato**.
+5. Em **Perfis de Extração**, execute **Rodar Crawl de Validação**. Se o relatório estiver elegível, informe o motivo, aprove o perfil, ative-o e então ative a Crawl Agency.
+6. Em **Novo crawl de produção**, prefira **Gerar novo Discovery** (ou escolha um snapshot anterior), selecione o perfil e clique em **Rodar Crawl**.
+
+O andamento aparece em **Operações**. Ao concluir, use **Visualizar dados do crawl** ou consulte o snapshot na página da Crawl Agency. Se uma operação permanecer em `queued`, confirme que o worker está em execução e consegue acessar o banco.
+
 ## Uso
 
 ### Pipeline completo

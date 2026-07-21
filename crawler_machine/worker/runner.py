@@ -86,7 +86,12 @@ class CrawlerWorker:
                 "Starting URL discovery",
             )
             if operation.type == "discovery":
-                urls = self._discoverer.discover_sync(str(operation.plan["base_url"]))
+                policy = operation.plan.get("discovery_policy")
+                urls = (
+                    self._discoverer.discover_sync(str(operation.plan["base_url"]), policy)
+                    if isinstance(policy, dict)
+                    else self._discoverer.discover_sync(str(operation.plan["base_url"]))
+                )
                 if self._cancel_if_requested(operation.id):
                     return True
                 self._store.heartbeat(

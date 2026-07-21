@@ -69,3 +69,17 @@ def test_discoverer_skips_entries_without_url():
     urls = discoverer.discover_sync("https://example.com")
 
     assert urls == ["https://example.com/imovel/1"]
+
+
+def test_discoverer_passes_the_operation_policy_to_the_mapper(mapper_results):
+    class RecordingMapper(FakeMapper):
+        async def scan(self, url: str, **kwargs: object) -> list[dict]:
+            self.policy = kwargs
+            return self.results
+
+    mapper = RecordingMapper(mapper_results)
+    discoverer = URLDiscoverer(mapper=mapper, max_urls=500, listing_patterns=[])
+
+    discoverer.discover_sync("https://example.com", {"sources": ["sitemap", "robots"], "max_urls": 20, "include_subdomains": False})
+
+    assert mapper.policy == {"source": "sitemap+robots", "max_urls": 20, "include_subdomains": False}

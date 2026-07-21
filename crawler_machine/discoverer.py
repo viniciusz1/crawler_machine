@@ -14,17 +14,17 @@ _DEFAULT_LISTING_PATTERNS = [
 class URLMapper(Protocol):
     """Porta para descoberta de URLs."""
 
-    async def scan(self, url: str) -> list[dict[str, Any]]: ...
+    async def scan(self, url: str, **kwargs: Any) -> list[dict[str, Any]]: ...
 
 
 class DomainMapperAdapter:
     """Adapter que isola a dependência concreta do crawl4ai.DomainMapper."""
 
-    async def scan(self, url: str) -> list[dict[str, Any]]:
+    async def scan(self, url: str, **kwargs: Any) -> list[dict[str, Any]]:
         from crawl4ai import DomainMapper
 
         async with DomainMapper() as mapper:
-            return await mapper.scan(url)
+            return await mapper.scan(url, **kwargs)
 
 
 class URLDiscoverer:
@@ -44,9 +44,14 @@ class URLDiscoverer:
             else listing_patterns
         )
 
-    async def discover(self, base_url: str) -> list[str]:
+    async def discover(self, base_url: str, policy: dict[str, Any] | None = None) -> list[str]:
         """Descobre URLs a partir da URL base."""
-        results = await self._mapper.scan(base_url)
+        policy = policy or {}
+        mapper_policy = {
+            **({"source": "+".join(policy["sources"])} if policy.get("sources") else {}),
+            **{key: policy[key] for key in ["max_urls", "include_subdomains", "use_browser_for_homepage", "query", "score_threshold", "probe_paths", "common_subdomains"] if key in policy},
+        }
+        results = await self._mapper.scan(base_url, **mapper_policy)
 
         urls: list[str] = []
         compiled = [re.compile(pattern) for pattern in self._listing_patterns]
@@ -59,11 +64,11 @@ class URLDiscoverer:
             if compiled and not any(pattern.search(url) for pattern in compiled):
                 continue
             urls.append(url)
-            if len(urls) >= self.max_urls:
+            if len(urls) >= int(policy.get("max_urls", self.max_urls)):
                 break
 
         return urls
 
-    def discover_sync(self, base_url: str) -> list[str]:
+    def discover_sync(self, base_url: str, policy: dict[str, Any] | None = None) -> list[str]:
         """Versão síncrona de ``discover``."""
-        return asyncio.run(self.discover(base_url))
+        return asyncio.run(self.discover(base_url, policy))
