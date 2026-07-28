@@ -39,6 +39,19 @@ class UnusedDiscoverer:
         raise AssertionError("existing discovery snapshot should be reused")
 
 
+class PolicyCapturingDiscoverer:
+    def __init__(self) -> None:
+        self.policies: list[dict[str, Any] | None] = []
+
+    def discover_sync(
+        self,
+        base_url: str,
+        policy: dict[str, Any] | None = None,
+    ) -> list[str]:
+        self.policies.append(policy)
+        return [f"{base_url}/property/1"]
+
+
 def _fixed_policy() -> dict[str, Any]:
     return {
         "id": "019c-fixed-policy",
@@ -141,3 +154,46 @@ def test_production_uses_profile_strategy_selection_for_legacy_profiles() -> Non
     assert extractor.policies == [
         {"source": "extraction_profile", "strategies": ["css"]}
     ]
+
+
+def test_fresh_first_production_uses_the_pinned_discovery_policy() -> None:
+    extractor = PolicyCapturingExtractor()
+    discoverer = PolicyCapturingDiscoverer()
+    discovery_policy = {
+        "id": 9,
+        "version": 2,
+        "source": "catalog",
+        "strategies": ["sitemap", "homepage"],
+        "configuration": {"max_urls": 100},
+    }
+
+    result = ProductionCrawlExecutor(
+        discoverer=discoverer,
+        extractor=extractor,
+        normalizer=ValidNormalizer(),
+    ).run(
+        {
+            "crawl_agency_id": 42,
+            "discovery": {
+                "mode": "fresh",
+                "requested_mode": "fresh",
+                "base_url": "https://example.com",
+            },
+            "discovery_policy": discovery_policy,
+            "extraction_policy": _fixed_policy(),
+            "extraction_profile": {
+                "id": 7,
+                "schemas": {"css": {"baseSelector": "body", "fields": []}},
+                "strategies": ["css"],
+                "parameters": {},
+            },
+            "market_data_contract": {
+                "id": 3,
+                "fields": [{"name": "title", "required": True}],
+            },
+            "quality_policy": {"id": 1, "rules": {}},
+        }
+    )
+
+    assert result["technical_state"] == "succeeded"
+    assert discoverer.policies == [discovery_policy]

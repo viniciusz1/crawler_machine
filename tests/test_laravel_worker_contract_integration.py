@@ -95,6 +95,49 @@ class ContractValidationExecutor:
         }
 
 
+class ContractProductionExecutor:
+    def __init__(self) -> None:
+        self.seen_plans: list[dict[str, Any]] = []
+
+    def run(self, plan: dict[str, Any], should_cancel) -> dict[str, Any]:
+        self.seen_plans.append(dict(plan))
+        discovery = dict(plan["discovery"])
+        urls = [f"{discovery['base_url'].rstrip('/')}/imovel/first-production"]
+        discovery["urls"] = urls
+        return {
+            "technical_state": "succeeded",
+            "result_kind": "full",
+            "publishable": True,
+            "discovery": discovery,
+            "raw_properties": [
+                {
+                    "url": urls[0],
+                    "payload": {
+                        "url": urls[0],
+                        "title": "Contract first production",
+                    },
+                    "extraction_trace": {"title": "xpath"},
+                    "errors": [],
+                }
+            ],
+            "market_properties": [
+                {
+                    "raw_index": 0,
+                    "payload": {
+                        "url": urls[0],
+                        "title": "Contract first production",
+                    },
+                    "normalization_warnings": [],
+                    "extraction_trace": {"title": "xpath"},
+                }
+            ],
+            "rejected_properties": [],
+            "errors": [],
+            "artifacts": [],
+            "technical_logs": [],
+        }
+
+
 def test_laravel_queues_python_claims_and_laravel_reads_discovery() -> None:
     suffix = uuid.uuid4().hex[:12]
     client = httpx.Client(
@@ -247,6 +290,16 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
         },
     )
     discovery_policy.raise_for_status()
+    discovery_policy_data = discovery_policy.json()["data"]
+    expected_discovery_policy = {
+        "id": discovery_policy_data["id"],
+        "name": discovery_policy_data["name"],
+        "version": discovery_policy_data["version"],
+        "source": "catalog",
+        "strategies": discovery_policy_data["strategies"],
+        "sources": discovery_policy_data["strategies"],
+        "configuration": discovery_policy_data["configuration"],
+    }
     client.post(
         "/api/v1/admin/crawler/discovery-policy-versions/"
         f"{discovery_policy.json()['data']['id']}/publish"
@@ -305,11 +358,13 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
 
     profile_generator = ContractProfileGenerator()
     validation_executor = ContractValidationExecutor()
+    production_executor = ContractProductionExecutor()
     worker = CrawlerWorker(
         store=PostgresOperationStore(config),
         discoverer=ContractDiscoverer(),
         profile_generator=profile_generator,
         validation_executor=validation_executor,
+        production_crawl_executor=production_executor,
         worker_key=f"onboarding-contract-worker-{suffix}",
         version="onboarding-contract-test",
     )
@@ -369,6 +424,47 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
             persisted_strategies, persisted_policy = cursor.fetchone()
     assert persisted_strategies == expected_extraction_policy["strategies"]
     assert persisted_policy == expected_extraction_policy
+
+    approval = client.post(
+        f"/api/v1/admin/crawler/onboarding-executions/{execution['id']}/approve"
+    )
+    approval.raise_for_status()
+    approval_data = approval.json()["data"]
+    assert approval_data["state"] == "running"
+    assert approval_data["current_step"] == "first_production"
+    production_operation = next(
+        operation
+        for operation in approval_data["operations"]
+        if operation["type"] == "production_crawl"
+    )
+    _run_until_operation_succeeds(
+        worker,
+        client,
+        production_operation["id"],
+    )
+    _reconcile_onboarding()
+
+    finished = client.get(
+        f"/api/v1/admin/crawler/onboarding-executions/{execution['id']}"
+    )
+    finished.raise_for_status()
+    finished_data = finished.json()["data"]
+    assert finished_data["state"] == "completed"
+    assert finished_data["current_step"] == "quality_gate"
+    assert finished_data["first_production"]["publication_state"] == "published"
+    assert finished_data["first_production"]["quality_verdict"] == "approved"
+    assert [operation["type"] for operation in finished_data["operations"]] == [
+        "discovery",
+        "profile_generation",
+        "profile_validation",
+        "production_crawl",
+    ]
+    assert production_executor.seen_plans[-1]["discovery_policy"] == (
+        expected_discovery_policy
+    )
+    assert production_executor.seen_plans[-1]["extraction_policy"] == (
+        expected_extraction_policy
+    )
 
 
 def _run_until_operation_succeeds(

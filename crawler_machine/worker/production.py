@@ -8,7 +8,11 @@ from crawler_machine.worker.validation import ProfileExtractor, RecordNormalizer
 
 
 class SynchronousDiscoverer(Protocol):
-    def discover_sync(self, base_url: str) -> list[str]: ...
+    def discover_sync(
+        self,
+        base_url: str,
+        policy: dict[str, Any] | None = None,
+    ) -> list[str]: ...
 
 
 class ProductionCrawlExecutor:
@@ -38,11 +42,20 @@ class ProductionCrawlExecutor:
         cancellation_check = should_cancel or (lambda: False)
 
         try:
-            urls = (
-                self._discoverer.discover_sync(str(discovery["base_url"]))
-                if discovery["mode"] == "fresh"
-                else [str(url) for url in discovery["urls"]]
-            )
+            discovery_policy = plan.get("discovery_policy")
+            if discovery["mode"] == "fresh":
+                urls = (
+                    self._discoverer.discover_sync(
+                        str(discovery["base_url"]),
+                        discovery_policy,
+                    )
+                    if isinstance(discovery_policy, dict)
+                    else self._discoverer.discover_sync(
+                        str(discovery["base_url"])
+                    )
+                )
+            else:
+                urls = [str(url) for url in discovery["urls"]]
             discovery["urls"] = urls
         except Exception as exception:
             urls = []
