@@ -74,14 +74,20 @@ class FitMarkdownRegexStrategy:
             )
 
         record: dict[str, Any] = {}
+        present = {
+            key
+            for item in previous.data
+            for key, value in item.items()
+            if self._is_meaningful(value)
+        }
         for field_name, field in self._fields.items():
-            if field_name in self._patterns:
+            if field_name not in present and field_name in self._patterns:
                 value = self._extract_first(markdown, self._patterns[field_name])
                 if value is not None:
                     record[field_name] = value
 
         image = self._extract_first_image(previous.html)
-        if image and "imagem" in self._fields:
+        if image and "imagem" in self._fields and "imagem" not in present:
             record["imagem"] = image
 
         return CrawlResult(
@@ -128,6 +134,16 @@ class FitMarkdownRegexStrategy:
         if match:
             return match.group(1)
         return None
+
+    @staticmethod
+    def _is_meaningful(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, dict)):
+            return bool(value)
+        return True
 
     @staticmethod
     def _default_generator() -> DefaultMarkdownGenerator:

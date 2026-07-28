@@ -48,6 +48,31 @@ class ErrorStrategy(ExtractionStrategy):
         return CrawlResult(url=url, success=False, data=[], error="boom")
 
 
+class FakeHtmlCollector:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def run(self, url: str) -> CrawlResult:
+        self.calls.append(url)
+        return CrawlResult(
+            url=url,
+            success=True,
+            data=[],
+            html=f"<html>{url}</html>",
+            images=[f"{url}/image.jpg"],
+        )
+
+
+class FailingHtmlCollector:
+    async def run(self, url: str) -> CrawlResult:
+        return CrawlResult(
+            url=url,
+            success=False,
+            data=[],
+            error="browser failed",
+        )
+
+
 @pytest.fixture
 def crawler_config():
     return CrawlerConfig(
@@ -74,11 +99,13 @@ async def test_engine_runs_strategies_in_order_and_fills_missing_fields(crawler_
         },
         expects_html=True,
     )
+    collector = FakeHtmlCollector()
 
     engine = CrawlEngine(
         config=crawler_config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy_a, strategy_b],
+        html_collector=collector,
     )
 
     results, errors = await engine.crawl(["https://example.com/1"])
@@ -98,6 +125,17 @@ async def test_engine_runs_strategies_in_order_and_fills_missing_fields(crawler_
         "url": "url",
     }
     assert strategy_b.calls[0][1].html == "<html>https://example.com/1</html>"
+    assert strategy_b.calls[0][1].data == [
+        {
+            "bairro": "Centro",
+            "cidade": "Jaraguá",
+            "url": "https://example.com/1",
+        }
+    ]
+    assert strategy_b.calls[0][1].images == [
+        "https://example.com/1/image.jpg"
+    ]
+    assert collector.calls == ["https://example.com/1"]
 
 
 @pytest.mark.anyio
@@ -120,6 +158,7 @@ async def test_engine_stops_when_all_required_fields_are_present(crawler_config)
         config=crawler_config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy_a, strategy_b],
+        html_collector=FakeHtmlCollector(),
     )
 
     results, _ = await engine.crawl(["https://example.com/1"])
@@ -141,6 +180,7 @@ async def test_engine_skips_disabled_strategies(crawler_config):
         config=crawler_config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy_a, strategy_b],
+        html_collector=FakeHtmlCollector(),
     )
 
     results, _ = await engine.crawl(["https://example.com/1"])
@@ -162,6 +202,7 @@ async def test_engine_continues_when_early_strategy_fails(crawler_config):
         config=crawler_config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy_a, strategy_b],
+        html_collector=FakeHtmlCollector(),
     )
 
     results, errors = await engine.crawl(["https://example.com/1"])
@@ -182,6 +223,7 @@ async def test_engine_returns_partial_records_when_strategies_exhausted(crawler_
         config=crawler_config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy_a],
+        html_collector=FakeHtmlCollector(),
     )
 
     results, errors = await engine.crawl(["https://example.com/1"])
@@ -217,6 +259,7 @@ async def test_engine_chunks_urls_and_respects_delay(monkeypatch):
         config=config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy],
+        html_collector=FakeHtmlCollector(),
     )
 
     results, _ = await engine.crawl([f"https://example.com/{i}" for i in range(3)])
@@ -241,12 +284,37 @@ async def test_strategy_does_not_overwrite_already_found_fields(crawler_config):
         config=crawler_config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy_a, strategy_b],
+        html_collector=FakeHtmlCollector(),
     )
 
     results, _ = await engine.crawl(["https://example.com/1"])
 
     assert results[0]["bairro"] == "Centro"
     assert results[0]["valor"] == 100_000.0
+
+
+@pytest.mark.anyio
+async def test_engine_stops_before_strategies_when_html_collection_fails(
+    crawler_config,
+):
+    strategy = FakeStrategy(
+        "xpath",
+        returns={"https://example.com/1": {"bairro": "Centro"}},
+    )
+    engine = CrawlEngine(
+        config=crawler_config,
+        required_fields=REQUIRED_FIELDS,
+        strategies=[strategy],
+        html_collector=FailingHtmlCollector(),
+    )
+
+    records, errors = await engine.crawl(["https://example.com/1"])
+
+    assert records == []
+    assert errors == [
+        {"url": "https://example.com/1", "error": "browser failed"}
+    ]
+    assert strategy.calls == []
 
 
 def test_crawl_result_defaults():

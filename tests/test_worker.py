@@ -95,12 +95,25 @@ class FakeSampleFinder:
 
 
 class FakeProfileGenerator:
-    def generate(self, sample_url: str, fields: list[dict]) -> dict:
+    def __init__(self) -> None:
+        self.policies: list[dict | None] = []
+
+    def generate(
+        self,
+        sample_url: str,
+        fields: list[dict],
+        extraction_policy: dict | None = None,
+    ) -> dict:
         assert sample_url == "https://agency.example.com/imovel/confirmed"
         assert fields[0]["name"] == "title"
+        self.policies.append(extraction_policy)
         return {
             "schemas": {"xpath": {"fields": []}, "css": {"fields": []}},
-            "strategies": ["xpath", "css"],
+            "strategies": (
+                list(extraction_policy["strategies"])
+                if extraction_policy is not None
+                else ["xpath", "css"]
+            ),
             "fields": fields,
             "parameters": {"generated_by": "fake"},
         }
@@ -246,6 +259,46 @@ def test_worker_persists_immutable_candidate_profile() -> None:
     assert worker.run_once() is True
     assert store.completed_profiles[0][0] == 9
     assert store.completed_profiles[0][1]["strategies"] == ["xpath", "css"]
+
+
+def test_worker_passes_fixed_extraction_policy_to_profile_generation() -> None:
+    policy = {
+        "id": "019c-fixed-policy",
+        "version": 3,
+        "source": "catalog",
+        "strategies": ["css", "llm_full_html"],
+        "configuration": {},
+    }
+    store = FakeOperationStore(
+        ClaimedOperation(
+            id=14,
+            type="profile_generation",
+            crawl_agency_id=42,
+            plan={
+                "sample_url": "https://agency.example.com/imovel/confirmed",
+                "sample_url_confirmed": True,
+                "contract_fields": [
+                    {"name": "title", "type": "string", "required": True}
+                ],
+                "extraction_policy": policy,
+            },
+        )
+    )
+    generator = FakeProfileGenerator()
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        profile_generator=generator,
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+    assert generator.policies == [policy]
+    assert store.completed_profiles[0][1]["strategies"] == [
+        "css",
+        "llm_full_html",
+    ]
 
 
 def test_worker_persists_profile_validation_report() -> None:

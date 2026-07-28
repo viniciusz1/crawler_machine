@@ -30,7 +30,10 @@ class ExtractionProfileGenerator:
         self._llm_config = llm_config
 
     def generate(
-        self, sample_url: str, fields: list[dict[str, Any]]
+        self,
+        sample_url: str,
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         generator = SchemaGenerator(
             llm_config=self._llm_config,
@@ -45,11 +48,19 @@ class ExtractionProfileGenerator:
         )
         generated = generator.generate_sync(sample_url)
         schemas = generated["schemas"]
+        strategies = (
+            list(extraction_policy["strategies"])
+            if extraction_policy is not None
+            else list(schemas.keys())
+        )
+        parameters = dict(generated["metadata"])
+        if extraction_policy is not None:
+            parameters["extraction_policy"] = dict(extraction_policy)
         return {
             "schemas": schemas,
-            "strategies": list(schemas.keys()),
+            "strategies": strategies,
             "fields": fields,
-            "parameters": generated["metadata"],
+            "parameters": parameters,
         }
 
 
@@ -62,6 +73,7 @@ class ConfiguredProfileExtractor:
         url: str,
         schemas: dict[str, Any],
         fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         field_config = [
             FieldConfig(
@@ -84,6 +96,7 @@ class ConfiguredProfileExtractor:
             operation_config,
             {"schemas": schemas},
             required_fields=required_fields,
+            extraction_policy=extraction_policy,
         )
         records, errors = engine.crawl_sync([url])
         return (

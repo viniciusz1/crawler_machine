@@ -15,7 +15,12 @@ class SampleFinder(Protocol):
 
 
 class ProfileGenerator(Protocol):
-    def generate(self, sample_url: str, fields: list[dict[str, Any]]) -> dict[str, Any]: ...
+    def generate(
+        self,
+        sample_url: str,
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
 
 
 class ValidationExecutor(Protocol):
@@ -114,10 +119,18 @@ class CrawlerWorker:
             elif operation.type == "profile_generation" and self._profile_generator:
                 if operation.plan.get("sample_url_confirmed") is not True:
                     raise RuntimeError("sample URL was not confirmed by an operator")
-                profile = self._profile_generator.generate(
-                    str(operation.plan["sample_url"]),
-                    list(operation.plan["contract_fields"]),
-                )
+                extraction_policy = operation.plan.get("extraction_policy")
+                if isinstance(extraction_policy, dict):
+                    profile = self._profile_generator.generate(
+                        str(operation.plan["sample_url"]),
+                        list(operation.plan["contract_fields"]),
+                        extraction_policy,
+                    )
+                else:
+                    profile = self._profile_generator.generate(
+                        str(operation.plan["sample_url"]),
+                        list(operation.plan["contract_fields"]),
+                    )
                 if self._cancel_if_requested(operation.id):
                     return True
                 self._store.complete_profile(operation.id, self._worker_key, profile)

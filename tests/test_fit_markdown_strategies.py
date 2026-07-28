@@ -112,6 +112,7 @@ async def test_fit_markdown_regex_returns_empty_when_no_patterns_match(fields):
 @pytest.mark.anyio
 async def test_fit_markdown_llm_extracts_missing_fields(fields):
     async def fake_extract(url: str, markdown: str, missing: set[str]) -> dict[str, Any]:
+        assert missing == {"bairro", "cidade", "tipo_imovel"}
         return {
             "bairro": "Centro",
             "cidade": "Jaraguá",
@@ -129,7 +130,17 @@ async def test_fit_markdown_llm_extracts_missing_fields(fields):
         extract_missing=fake_extract,
     )
     previous = CrawlResult(
-        url="https://example.com/1", success=True, data=[], html=HTML
+        url="https://example.com/1",
+        success=True,
+        data=[
+            {
+                "valor": 450_000,
+                "quartos": 3,
+                "area": 120,
+                "imagem": "https://example.com/img.jpg",
+            }
+        ],
+        html=HTML,
     )
 
     result = await strategy.extract("https://example.com/1", previous)
@@ -139,6 +150,43 @@ async def test_fit_markdown_llm_extracts_missing_fields(fields):
     assert result.data[0].get("bairro") == "Centro"
     assert result.data[0].get("cidade") == "Jaraguá"
     assert result.data[0].get("tipo_imovel") == "Casa"
+
+
+@pytest.mark.anyio
+async def test_fit_markdown_llm_skips_provider_when_no_fields_are_missing(fields):
+    called = False
+
+    async def fake_extract(
+        url: str,
+        markdown: str,
+        missing: set[str],
+    ) -> dict[str, Any]:
+        nonlocal called
+        called = True
+        return {}
+
+    strategy = FitMarkdownLlmStrategy(
+        fields=fields,
+        llm_config=LLMConfig(
+            provider="deepseek/deepseek-v4-pro",
+            base_url="https://api.deepseek.com",
+            api_key_env="DEEPSEEK_API_KEY",
+        ),
+        markdown_generator=FakeMarkdownGenerator(),
+        extract_missing=fake_extract,
+    )
+    previous = CrawlResult(
+        url="https://example.com/1",
+        success=True,
+        data=[{field.name: "present" for field in fields}],
+        html=HTML,
+    )
+
+    result = await strategy.extract("https://example.com/1", previous)
+
+    assert result.success is True
+    assert result.data == []
+    assert called is False
 
 
 @pytest.mark.anyio

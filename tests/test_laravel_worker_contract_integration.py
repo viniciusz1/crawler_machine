@@ -35,9 +35,18 @@ class ContractDiscoverer:
 
 
 class ContractProfileGenerator:
+    def __init__(self) -> None:
+        self.seen_policies: list[dict[str, Any]] = []
+
     def generate(
-        self, sample_url: str, fields: list[dict[str, Any]]
+        self,
+        sample_url: str,
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if extraction_policy is None:
+            raise AssertionError("Laravel did not pin the extraction policy")
+        self.seen_policies.append(dict(extraction_policy))
         return {
             "schemas": {
                 "xpath": {
@@ -45,14 +54,24 @@ class ContractProfileGenerator:
                     "fields": {"title": "//h1/text()"},
                 }
             },
-            "strategies": ["xpath"],
+            "strategies": list(extraction_policy["strategies"]),
             "fields": fields,
-            "parameters": {"adapter": "contract"},
+            "parameters": {
+                "adapter": "contract",
+                "extraction_policy": dict(extraction_policy),
+            },
         }
 
 
 class ContractValidationExecutor:
+    def __init__(self) -> None:
+        self.seen_policies: list[dict[str, Any]] = []
+
     def run(self, plan: dict[str, Any]) -> dict[str, Any]:
+        policy = plan.get("extraction_policy")
+        if not isinstance(policy, dict):
+            raise AssertionError("Laravel did not pin the validation extraction policy")
+        self.seen_policies.append(dict(policy))
         urls = list(plan["urls"])
         return {
             "sampled_url_count": len(urls),
@@ -137,14 +156,11 @@ def test_laravel_queues_python_claims_and_laravel_reads_discovery() -> None:
         worker_key=f"contract-worker-{suffix}",
         version="contract-test",
     )
-    assert worker.run_once() is True
-
-    completed_response = client.get(
-        f"/api/v1/admin/crawler/operations/{operation['id']}"
+    completed = _run_until_operation_succeeds(
+        worker,
+        client,
+        operation["id"],
     )
-    completed_response.raise_for_status()
-    completed = completed_response.json()["data"]
-    assert completed["state"] == "succeeded"
     urls_response = client.get(
         f"/api/v1/admin/crawler/discovery-snapshots/{completed['discovery_snapshot_id']}/urls"
     )
@@ -243,6 +259,15 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
         },
     )
     extraction_policy.raise_for_status()
+    extraction_policy_data = extraction_policy.json()["data"]
+    expected_extraction_policy = {
+        "id": extraction_policy_data["id"],
+        "name": extraction_policy_data["name"],
+        "version": extraction_policy_data["version"],
+        "source": "catalog",
+        "strategies": extraction_policy_data["strategies"],
+        "configuration": extraction_policy_data["configuration"],
+    }
     client.post(
         "/api/v1/admin/crawler/extraction-policy-versions/"
         f"{extraction_policy.json()['data']['id']}/publish"
@@ -278,18 +303,19 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
     assert execution["state"] == "queued"
     assert execution["operations"] == []
 
+    profile_generator = ContractProfileGenerator()
+    validation_executor = ContractValidationExecutor()
     worker = CrawlerWorker(
         store=PostgresOperationStore(config),
         discoverer=ContractDiscoverer(),
-        profile_generator=ContractProfileGenerator(),
-        validation_executor=ContractValidationExecutor(),
+        profile_generator=profile_generator,
+        validation_executor=validation_executor,
         worker_key=f"onboarding-contract-worker-{suffix}",
         version="onboarding-contract-test",
     )
 
     for expected_type in ("discovery", "profile_generation", "profile_validation"):
         _reconcile_onboarding()
-        assert worker.run_once() is True
         current = client.get(
             f"/api/v1/admin/crawler/onboarding-executions/{execution['id']}"
         )
@@ -300,7 +326,7 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
             if operation["type"] == expected_type
         ]
         assert len(matching) == 1
-        assert matching[0]["state"] == "succeeded"
+        _run_until_operation_succeeds(worker, client, matching[0]["id"])
 
     _reconcile_onboarding()
     completed = client.get(
@@ -316,6 +342,53 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
         "profile_generation",
         "profile_validation",
     ]
+    assert expected_extraction_policy in profile_generator.seen_policies
+    assert expected_extraction_policy in validation_executor.seen_policies
+
+    generation_operation = next(
+        operation
+        for operation in data["operations"]
+        if operation["type"] == "profile_generation"
+    )
+    with psycopg2.connect(
+        host=config.host,
+        port=config.port,
+        dbname=config.database,
+        user=config.user,
+        password=config.password,
+    ) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT strategies, parameters->'extraction_policy'
+                FROM crawler.extraction_profiles
+                WHERE created_by_operation_id = %s
+                """,
+                (generation_operation["id"],),
+            )
+            persisted_strategies, persisted_policy = cursor.fetchone()
+    assert persisted_strategies == expected_extraction_policy["strategies"]
+    assert persisted_policy == expected_extraction_policy
+
+
+def _run_until_operation_succeeds(
+    worker: CrawlerWorker,
+    client: httpx.Client,
+    operation_id: int,
+) -> dict[str, Any]:
+    for _ in range(100):
+        response = client.get(f"/api/v1/admin/crawler/operations/{operation_id}")
+        response.raise_for_status()
+        operation = response.json()["data"]
+        if operation["state"] == "succeeded":
+            return operation
+        if operation["state"] in {"failed", "cancelled"}:
+            raise AssertionError(
+                f"operation {operation_id} ended as {operation['state']}"
+            )
+        if worker.run_once() is not True:
+            break
+    raise AssertionError(f"operation {operation_id} did not succeed")
 
 
 def _reconcile_onboarding() -> None:

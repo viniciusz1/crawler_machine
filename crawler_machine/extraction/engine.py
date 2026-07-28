@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 from crawler_machine.config import REQUIRED_FIELDS, CrawlerConfig
 from crawler_machine.extraction.result import CrawlResult
 from crawler_machine.extraction.strategy import ExtractionStrategy
+from crawler_machine.extraction.strategies.http_runner import HttpRunner
 
 logger = logging.getLogger(__name__)
+
+
+class HtmlCollector(Protocol):
+    async def run(self, url: str) -> CrawlResult: ...
 
 
 class CrawlEngine:
@@ -19,12 +24,17 @@ class CrawlEngine:
         config: CrawlerConfig,
         required_fields: set[str] | tuple[str, ...],
         strategies: list[ExtractionStrategy],
+        html_collector: HtmlCollector | None = None,
     ):
         self._config = config
         self._required_fields = set(required_fields)
         self._strategies = [s for s in strategies if s.enabled]
+        self._html_collector = html_collector or HttpRunner(config)
 
-    async def crawl(self, urls: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    async def crawl(
+        self,
+        urls: list[str],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Executa a cadeia de fallback para cada URL."""
         data: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
@@ -33,9 +43,9 @@ class CrawlEngine:
             if index > 0 and self._config.chunk_delay > 0:
                 await asyncio.sleep(self._config.chunk_delay)
 
-            chunk_results = await asyncio.gather(*[
-                self._crawl_single(url) for url in chunk
-            ])
+            chunk_results = await asyncio.gather(
+                *[self._crawl_single(url) for url in chunk]
+            )
 
             for result, error in chunk_results:
                 if error is not None:
@@ -55,7 +65,19 @@ class CrawlEngine:
         self, url: str
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         """Executa a cadeia de fallback para uma única URL."""
-        previous: CrawlResult | None = None
+        try:
+            fetched = await self._html_collector.run(url)
+        except Exception as exc:  # pragma: no cover - adapter safety net
+            logger.exception("HTML collection failed for %s", url)
+            return None, {"url": url, "error": str(exc)}
+        if not fetched.success:
+            return None, {
+                "url": url,
+                "error": fetched.error or "HTML collection failed",
+            }
+        if not fetched.html:
+            return None, {"url": url, "error": "HTML collection returned no HTML"}
+
         accumulated: dict[str, Any] = {}
         trace: dict[str, str] = {}
         last_error: str | None = None
@@ -65,6 +87,13 @@ class CrawlEngine:
             trace["url"] = "url"
 
         for strategy in self._strategies:
+            previous = CrawlResult(
+                url=fetched.url,
+                success=True,
+                data=[dict(accumulated)] if accumulated else [],
+                html=fetched.html,
+                images=fetched.images,
+            )
             try:
                 result = await strategy.extract(url, previous)
             except Exception as exc:  # pragma: no cover - safety net
@@ -76,18 +105,6 @@ class CrawlEngine:
                 last_error = result.error or f"{strategy.name} failed"
                 continue
 
-            if previous is None:
-                previous = result
-            elif result.html and not previous.html:
-                previous = CrawlResult(
-                    url=previous.url,
-                    success=previous.success,
-                    data=previous.data,
-                    error=previous.error,
-                    images=previous.images,
-                    html=result.html,
-                )
-
             for record in result.data:
                 if isinstance(record, dict):
                     for key, value in record.items():
@@ -95,9 +112,12 @@ class CrawlEngine:
                             accumulated[key] = value
                             trace[key] = strategy.name
 
-            if self._required_fields.issubset({
-                k for k, v in accumulated.items() if self._is_meaningful(v)
-            }):
+            present_fields = {
+                key
+                for key, value in accumulated.items()
+                if self._is_meaningful(value)
+            }
+            if self._required_fields.issubset(present_fields):
                 break
 
         if not accumulated or (set(accumulated.keys()) == {"url"} and last_error is not None):
@@ -112,6 +132,8 @@ class CrawlEngine:
         if value is None:
             return False
         if isinstance(value, str) and not value.strip():
+            return False
+        if isinstance(value, (list, dict)) and not value:
             return False
         return True
 

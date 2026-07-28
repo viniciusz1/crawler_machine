@@ -11,6 +11,7 @@ class ProfileExtractor(Protocol):
         url: str,
         schemas: dict[str, Any],
         fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]: ...
 
 
@@ -42,9 +43,14 @@ class ProfileValidationExecutor:
         records: list[dict[str, Any]] = []
         warnings: list[str] = []
         valid_count = 0
+        extraction_policy = plan.get("extraction_policy")
 
         for url in urls:
-            raw_data, extraction_errors = self._extractor.extract(url, schemas, fields)
+            raw_data, extraction_errors = (
+                self._extractor.extract(url, schemas, fields, extraction_policy)
+                if isinstance(extraction_policy, dict)
+                else self._extractor.extract(url, schemas, fields)
+            )
             field_presence = {
                 field: raw_data is not None and self._is_meaningful(raw_data.get(field))
                 for field in required_fields

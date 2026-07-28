@@ -53,6 +53,7 @@ class ProductionCrawlExecutor:
         contract = dict(plan["market_data_contract"])
         schemas = dict(profile["schemas"])
         fields = list(contract["fields"])
+        extraction_policy = self._extraction_policy(plan, profile)
         required_fields = [
             str(field["name"]) for field in fields if field.get("required") is True
         ]
@@ -62,7 +63,11 @@ class ProductionCrawlExecutor:
                 cancelled = True
                 break
             try:
-                extracted, extraction_errors = self._extractor.extract(url, schemas, fields)
+                extracted, extraction_errors = (
+                    self._extractor.extract(url, schemas, fields, extraction_policy)
+                    if extraction_policy is not None
+                    else self._extractor.extract(url, schemas, fields)
+                )
             except Exception as exception:
                 fatal = True
                 errors.append({"stage": "crawl", "url": url, "message": str(exception)})
@@ -167,3 +172,26 @@ class ProductionCrawlExecutor:
         if isinstance(value, (list, dict)):
             return bool(value)
         return True
+
+    @staticmethod
+    def _extraction_policy(
+        plan: dict[str, Any],
+        profile: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        policy = plan.get("extraction_policy")
+        if isinstance(policy, dict):
+            return dict(policy)
+
+        parameters = profile.get("parameters")
+        nested_policy = (
+            parameters.get("extraction_policy")
+            if isinstance(parameters, dict)
+            else None
+        )
+        if isinstance(nested_policy, dict):
+            return dict(nested_policy)
+
+        strategies = profile.get("strategies")
+        if isinstance(strategies, list) and strategies:
+            return {"source": "extraction_profile", "strategies": list(strategies)}
+        return None

@@ -44,6 +44,22 @@ class FitMarkdownLlmStrategy:
                 error="Fit markdown LLM requires HTML from previous extraction",
             )
 
+        present = {
+            key
+            for item in previous.data
+            for key, value in item.items()
+            if self._is_meaningful(value)
+        }
+        missing = set(self._fields).difference(present)
+        if not missing:
+            return CrawlResult(
+                url=url,
+                success=True,
+                data=[],
+                html=previous.html,
+                images=previous.images,
+            )
+
         try:
             md_result = self._markdown_generator.generate_markdown(
                 input_html=previous.html,
@@ -60,7 +76,7 @@ class FitMarkdownLlmStrategy:
             )
 
         try:
-            data = await self._extract_missing(url, markdown, set(self._fields.keys()))
+            data = await self._extract_missing(url, markdown, missing)
         except Exception as exc:
             logger.exception("LLM extraction failed for %s", url)
             return CrawlResult(
@@ -70,7 +86,7 @@ class FitMarkdownLlmStrategy:
                 error=f"LLM extraction failed: {exc}",
             )
 
-        record = {k: v for k, v in data.items() if k in self._fields and v is not None}
+        record = {k: v for k, v in data.items() if k in missing and v is not None}
         return CrawlResult(
             url=url,
             success=True,
@@ -120,6 +136,16 @@ class FitMarkdownLlmStrategy:
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
         return text
+
+    @staticmethod
+    def _is_meaningful(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, dict)):
+            return bool(value)
+        return True
 
     @staticmethod
     def _default_generator() -> DefaultMarkdownGenerator:
