@@ -213,24 +213,40 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
     promoted = promotion.json()["data"]
     agency = promoted["crawl_agency"]
 
+    discovery_strategy_key = f"contract_discoverer_{suffix}"
+    discovery_strategy = client.post(
+        "/api/v1/admin/crawler/discovery-strategies",
+        json={
+            "key": discovery_strategy_key,
+            "label": f"Contract discoverer {suffix}",
+            "safety_status": "safe",
+        },
+    )
+    discovery_strategy.raise_for_status()
     discovery_policy = client.post(
         "/api/v1/admin/crawler/discovery-policy-versions",
         json={
             "name": f"Contract discovery {suffix}",
-            "strategies": ["contract_discoverer"],
-            "configuration": {"adapter": "deterministic"},
+            "strategies": [discovery_strategy_key],
         },
     )
     discovery_policy.raise_for_status()
+    client.post(
+        "/api/v1/admin/crawler/discovery-policy-versions/"
+        f"{discovery_policy.json()['data']['id']}/publish"
+    ).raise_for_status()
     extraction_policy = client.post(
         "/api/v1/admin/crawler/extraction-policy-versions",
         json={
             "name": f"Contract extraction {suffix}",
             "strategies": ["xpath"],
-            "configuration": {"fallback_order": ["xpath"]},
         },
     )
     extraction_policy.raise_for_status()
+    client.post(
+        "/api/v1/admin/crawler/extraction-policy-versions/"
+        f"{extraction_policy.json()['data']['id']}/publish"
+    ).raise_for_status()
     model = client.post(
         "/api/v1/admin/crawler/onboarding-execution-model-versions",
         json={
@@ -240,6 +256,10 @@ def test_automated_onboarding_reaches_durable_approval_pause() -> None:
         },
     )
     model.raise_for_status()
+    client.post(
+        "/api/v1/admin/crawler/onboarding-execution-model-versions/"
+        f"{model.json()['data']['id']}/publish"
+    ).raise_for_status()
 
     plan = client.put(
         f"/api/v1/admin/crawler/crawl-agencies/{agency['id']}/onboarding-plan",
