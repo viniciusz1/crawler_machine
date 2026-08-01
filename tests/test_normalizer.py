@@ -34,6 +34,10 @@ def test_extract_first_number_with_currency():
     assert extract_first_number("R$ 450.000,00") == 450_000.0
 
 
+def test_extract_first_number_with_smart_currency_without_cents():
+    assert extract_first_number("R$ 329.000") == 329_000.0
+
+
 def test_extract_first_number_returns_none_for_empty_string():
     assert extract_first_number("") is None
 

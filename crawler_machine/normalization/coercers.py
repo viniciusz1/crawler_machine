@@ -44,15 +44,34 @@ def parse_number(raw: str) -> float | None:
         else:
             raw = raw.replace(",", "")
     elif has_comma and not has_dot:
-        if raw.count(",") > 1:
-            raw = raw.replace(",", "")
-        else:
-            raw = raw.replace(",", ".")
+        raw = _normalize_single_separator(raw, ",")
+    elif has_dot and not has_comma:
+        raw = _normalize_single_separator(raw, ".")
 
     try:
         return float(raw)
     except ValueError:
         return None
+
+
+def _normalize_single_separator(raw: str, separator: str) -> str:
+    """Distingue agrupamento de milhares de uma fração decimal.
+
+    Imobiliárias brasileiras frequentemente omitem os centavos e publicam
+    valores como ``329.000``. Um único separador seguido por três dígitos deve,
+    portanto, ser tratado como agrupamento, enquanto ``72,5`` continua decimal.
+    """
+    groups = raw.split(separator)
+    is_grouped_thousands = (
+        len(groups) > 1
+        and all(group.isdigit() for group in groups)
+        and all(len(group) == 3 for group in groups[1:])
+    )
+    if is_grouped_thousands:
+        return "".join(groups)
+    if len(groups) == 2:
+        return ".".join(groups)
+    return raw
 
 
 def coerce_int(value: Any) -> int | None:
