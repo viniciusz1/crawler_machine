@@ -130,6 +130,34 @@ def test_production_crawl_reports_processed_url_progress() -> None:
     assert progress == [(1, 2), (2, 2)]
 
 
+def test_production_crawl_uses_the_approved_detail_url_shape() -> None:
+    plan = _plan(
+        {
+            "mode": "existing",
+            "snapshot_id": 5,
+            "urls": [
+                "https://agency.example.com/imoveis/venda/casa",
+                "https://agency.example.com/imovel/property/1",
+                "https://agency.example.com/imovel/property/2",
+            ],
+        }
+    )
+    plan["extraction_profile"]["parameters"] = {
+        "sample_url": "https://agency.example.com/imovel/property/1"
+    }
+
+    result = ProductionCrawlExecutor(
+        discoverer=FakeDiscoverer(),
+        extractor=FakeExtractor(),
+        normalizer=FakeNormalizer(),
+    ).run(plan)
+
+    assert [row["url"] for row in result["raw_properties"]] == [
+        "https://agency.example.com/imovel/property/1",
+        "https://agency.example.com/imovel/property/2",
+    ]
+
+
 def test_production_crawl_preserves_smart_currency_thousands() -> None:
     url = "https://imbsmart.com.br/imovel/329000"
     result = ProductionCrawlExecutor(

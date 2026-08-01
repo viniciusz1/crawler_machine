@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from crawler_machine.normalization.engine import DataNormalizer
 from crawler_machine.worker.validation import ProfileExtractor, RecordNormalizer
@@ -65,6 +66,8 @@ class ProductionCrawlExecutor:
             errors.append({"stage": "discovery", "message": str(exception)})
 
         profile = dict(plan["extraction_profile"])
+        urls = self._urls_matching_approved_detail_shape(urls, profile)
+        discovery["urls"] = urls
         contract = dict(plan["market_data_contract"])
         schemas = dict(profile["schemas"])
         fields = list(contract["fields"])
@@ -190,6 +193,42 @@ class ProductionCrawlExecutor:
         if isinstance(value, (list, dict)):
             return bool(value)
         return True
+
+    @staticmethod
+    def _urls_matching_approved_detail_shape(
+        urls: list[str],
+        profile: dict[str, Any],
+    ) -> list[str]:
+        parameters = profile.get("parameters")
+        sample_url = profile.get("sample_url")
+        if not isinstance(sample_url, str) and isinstance(parameters, dict):
+            sample_url = parameters.get("sample_url")
+        if not isinstance(sample_url, str):
+            return urls
+
+        detail_markers = {"imovel", "property", "listing", "detalhe", "detalhes"}
+        sample_segments = ProductionCrawlExecutor._path_segments(sample_url)
+        marker = next(
+            (segment for segment in sample_segments if segment in detail_markers),
+            None,
+        )
+        if marker is None:
+            return urls
+
+        matching = [
+            url
+            for url in urls
+            if marker in ProductionCrawlExecutor._path_segments(url)
+        ]
+        return matching or urls
+
+    @staticmethod
+    def _path_segments(url: str) -> tuple[str, ...]:
+        return tuple(
+            segment.lower()
+            for segment in urlparse(url).path.split("/")
+            if segment
+        )
 
     @staticmethod
     def _extraction_policy(
