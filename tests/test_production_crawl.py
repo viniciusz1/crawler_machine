@@ -49,6 +49,16 @@ class FakeNormalizer:
         }
 
 
+class SmartCurrencyExtractor:
+    def extract(
+        self,
+        url: str,
+        schemas: dict[str, Any],
+        fields: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[str]]:
+        return {"url": url, "title": "Apartamento", "valor": "R$ 329.000"}, []
+
+
 def _plan(discovery: dict[str, Any]) -> dict[str, Any]:
     return {
         "crawl_agency_id": 42,
@@ -93,6 +103,19 @@ def test_existing_snapshot_crawl_keeps_raw_normalized_rejected_and_trace() -> No
     assert result["market_properties"][0]["normalization_warnings"] == ["review value"]
     assert result["market_properties"][0]["extraction_trace"]["valor"] == "css"
     assert result["rejected_properties"][0]["missing_fields"] == ["valor"]
+
+
+def test_production_crawl_preserves_smart_currency_thousands() -> None:
+    url = "https://imbsmart.com.br/imovel/329000"
+    result = ProductionCrawlExecutor(
+        discoverer=FakeDiscoverer(),
+        extractor=SmartCurrencyExtractor(),
+    ).run(
+        _plan({"mode": "existing", "snapshot_id": 5, "urls": [url]})
+    )
+
+    assert result["raw_properties"][0]["payload"]["valor"] == "R$ 329.000"
+    assert result["market_properties"][0]["payload"]["valor"] == 329_000.0
 
 
 def test_fresh_crawl_discovers_urls_inside_the_operation() -> None:

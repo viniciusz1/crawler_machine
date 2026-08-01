@@ -7,8 +7,16 @@ class FakeMapper:
     def __init__(self, results: list[dict]):
         self.results = results
 
-    async def scan(self, url: str) -> list[dict]:
+    async def scan(self, url: str, **kwargs: object) -> list[dict]:
         return self.results
+
+
+class FakeSitemapFetcher:
+    def __init__(self, urls: list[str]):
+        self.urls = urls
+
+    async def fetch(self, base_url: str) -> list[str]:
+        return self.urls
 
 
 @pytest.fixture
@@ -83,3 +91,21 @@ def test_discoverer_passes_the_operation_policy_to_the_mapper(mapper_results):
     discoverer.discover_sync("https://example.com", {"sources": ["sitemap", "robots"], "max_urls": 20, "include_subdomains": False})
 
     assert mapper.policy == {"source": "sitemap+robots", "max_urls": 20, "include_subdomains": False}
+
+
+def test_discoverer_uses_sitemap_fallback_when_mapper_returns_no_urls():
+    sitemap_urls = [
+        "https://example.com/imovel/1",
+        "https://example.com/imovel/2",
+    ]
+    discoverer = URLDiscoverer(
+        mapper=FakeMapper([]),
+        sitemap_fetcher=FakeSitemapFetcher(sitemap_urls),
+    )
+
+    urls = discoverer.discover_sync(
+        "https://example.com",
+        {"sources": ["sitemap"]},
+    )
+
+    assert urls == sitemap_urls

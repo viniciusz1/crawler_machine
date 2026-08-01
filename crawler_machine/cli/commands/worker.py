@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import time
@@ -22,6 +23,8 @@ from crawler_machine.worker.production import ProductionCrawlExecutor
 from crawler_machine.worker.prospecting import ProspectingExecutor
 from crawler_machine.worker.runner import CrawlerWorker
 from crawler_machine.worker.validation import ProfileValidationExecutor
+
+logger = logging.getLogger(__name__)
 
 
 @app.command()
@@ -70,10 +73,18 @@ def worker(
             else None
         ),
     )
+    logger.info(
+        "crawler_worker_started worker_key=%s version=%s poll_seconds=%s once=%s",
+        worker_key,
+        version,
+        poll_seconds,
+        once,
+    )
 
     while True:
         processed = runner.run_once()
         if once:
+            logger.info("crawler_worker_stopped worker_key=%s reason=once", worker_key)
             return
         if not processed:
             time.sleep(poll_seconds)

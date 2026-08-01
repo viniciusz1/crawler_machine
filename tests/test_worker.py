@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from crawler_machine.worker.runner import CrawlerWorker
@@ -208,6 +209,41 @@ def test_worker_claims_and_completes_discovery_operation() -> None:
         )
     ]
     assert store.progress[-1][1:5] == ("discovery", 90, 2, 2)
+
+
+def test_worker_logs_operation_start_end_and_duration(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="crawler_machine.worker.runner")
+    store = FakeOperationStore(
+        ClaimedOperation(
+            id=7,
+            type="discovery",
+            crawl_agency_id=42,
+            plan={"base_url": "https://agency.example.com/imoveis"},
+        )
+    )
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        worker_key="worker-a",
+        version="1.0.0",
+    )
+
+    assert worker.run_once() is True
+
+    messages = [record.getMessage() for record in caplog.records]
+    started = next(
+        message for message in messages if "crawler_operation_started" in message
+    )
+    finished = next(
+        message for message in messages if "crawler_operation_finished" in message
+    )
+    assert "operation_id=7" in started
+    assert "operation_type=discovery" in started
+    assert "worker_key=worker-a" in started
+    assert "status=succeeded" in finished
+    assert "started_at=" in finished
+    assert "finished_at=" in finished
+    assert "duration_seconds=" in finished
 
 
 def test_worker_suggests_sample_only_from_home_finder() -> None:
