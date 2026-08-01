@@ -105,6 +105,31 @@ def test_existing_snapshot_crawl_keeps_raw_normalized_rejected_and_trace() -> No
     assert result["rejected_properties"][0]["missing_fields"] == ["valor"]
 
 
+def test_production_crawl_reports_processed_url_progress() -> None:
+    progress: list[tuple[int, int]] = []
+    executor = ProductionCrawlExecutor(
+        discoverer=FakeDiscoverer(),
+        extractor=FakeExtractor(),
+        normalizer=FakeNormalizer(),
+    )
+
+    executor.run(
+        _plan(
+            {
+                "mode": "existing",
+                "snapshot_id": 5,
+                "urls": [
+                    "https://agency.example.com/property/1",
+                    "https://agency.example.com/property/2",
+                ],
+            }
+        ),
+        on_progress=lambda processed, total: progress.append((processed, total)),
+    )
+
+    assert progress == [(1, 2), (2, 2)]
+
+
 def test_production_crawl_preserves_smart_currency_thousands() -> None:
     url = "https://imbsmart.com.br/imovel/329000"
     result = ProductionCrawlExecutor(

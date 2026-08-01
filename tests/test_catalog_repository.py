@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from crawler_machine.catalog import Catalog, CatalogRepository
 from tests.catalog_seed import seed_test_catalogs
 from tests.crawler_schema import ensure_schema
+from tests.database_safety import database_tests_enabled
 
 load_dotenv()
 
@@ -95,7 +96,10 @@ def test_find_neighborhood_not_found():
     assert repo.find_neighborhood("jaragua-do-sul", "Moema") is None
 
 
-@pytest.mark.skipif(not os.getenv("DB_HOST"), reason="Postgres not configured")
+@pytest.mark.skipif(
+    not database_tests_enabled(),
+    reason="Dedicated Postgres test database not configured",
+)
 def test_from_postgres_loads_catalogs():
     connection = _connect()
     try:

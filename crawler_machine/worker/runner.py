@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
+from threading import Event, Thread
 from time import perf_counter
 from typing import Any, Protocol
 
@@ -34,7 +35,10 @@ class ValidationExecutor(Protocol):
 
 class ProductionCrawlExecutor(Protocol):
     def run(
-        self, plan: dict[str, Any], should_cancel: Callable[[], bool]
+        self,
+        plan: dict[str, Any],
+        should_cancel: Callable[[], bool],
+        on_progress: Callable[[int, int], None],
     ) -> dict[str, Any]: ...
 
 
@@ -56,6 +60,7 @@ class CrawlerWorker:
         validation_executor: ValidationExecutor | None = None,
         production_crawl_executor: ProductionCrawlExecutor | None = None,
         prospecting_executor: ProspectingExecutor | None = None,
+        heartbeat_interval_seconds: float = 20.0,
     ) -> None:
         self._store = store
         self._discoverer = discoverer
@@ -65,6 +70,7 @@ class CrawlerWorker:
         self._validation_executor = validation_executor
         self._production_crawl_executor = production_crawl_executor
         self._prospecting_executor = prospecting_executor
+        self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._supported_types = ("discovery",) + (
             ("sample_url_suggestion",) if sample_finder is not None else ()
         ) + (("profile_generation",) if profile_generator is not None else ()) + (
@@ -111,10 +117,10 @@ class CrawlerWorker:
             )
             if operation.type == "discovery":
                 policy = operation.plan.get("discovery_policy")
-                urls = (
-                    self._discoverer.discover_sync(str(operation.plan["base_url"]), policy)
-                    if isinstance(policy, dict)
-                    else self._discoverer.discover_sync(str(operation.plan["base_url"]))
+                urls = self._discover_with_lease_renewal(
+                    operation.id,
+                    str(operation.plan["base_url"]),
+                    policy if isinstance(policy, dict) else None,
                 )
                 if self._cancel_if_requested(operation.id):
                     status = "cancelled"
@@ -143,35 +149,31 @@ class CrawlerWorker:
                 if operation.plan.get("sample_url_confirmed") is not True:
                     raise RuntimeError("sample URL was not confirmed by an operator")
                 extraction_policy = operation.plan.get("extraction_policy")
-                if isinstance(extraction_policy, dict):
-                    profile = self._profile_generator.generate(
-                        str(operation.plan["sample_url"]),
-                        list(operation.plan["contract_fields"]),
-                        extraction_policy,
-                    )
-                else:
-                    profile = self._profile_generator.generate(
-                        str(operation.plan["sample_url"]),
-                        list(operation.plan["contract_fields"]),
-                    )
+                profile = self._generate_profile_with_lease_renewal(
+                    operation.id,
+                    str(operation.plan["sample_url"]),
+                    list(operation.plan["contract_fields"]),
+                    extraction_policy if isinstance(extraction_policy, dict) else None,
+                )
                 if self._cancel_if_requested(operation.id):
                     status = "cancelled"
                     return True
                 self._store.complete_profile(operation.id, self._worker_key, profile)
                 status = "succeeded"
             elif operation.type == "profile_validation" and self._validation_executor:
-                report = self._validation_executor.run(operation.plan)
+                report = self._validate_profile_with_lease_renewal(
+                    operation.id,
+                    operation.plan,
+                )
                 if self._cancel_if_requested(operation.id):
                     status = "cancelled"
                     return True
                 self._store.complete_validation(operation.id, self._worker_key, report)
                 status = "succeeded"
             elif operation.type == "production_crawl" and self._production_crawl_executor:
-                result = self._production_crawl_executor.run(
+                result = self._production_crawl_with_lease_renewal(
+                    operation.id,
                     operation.plan,
-                    lambda: self._store.cancellation_requested(
-                        operation.id, self._worker_key
-                    ),
                 )
                 self._store.complete_production_crawl(
                     operation.id, self._worker_key, result
@@ -230,6 +232,195 @@ class CrawlerWorker:
             )
 
         return True
+
+    def _discover_with_lease_renewal(
+        self,
+        operation_id: int,
+        base_url: str,
+        policy: dict[str, Any] | None,
+    ) -> list[str]:
+        stopped = Event()
+
+        def renew_lease() -> None:
+            while not stopped.wait(self._heartbeat_interval_seconds):
+                try:
+                    self._store.heartbeat(
+                        operation_id,
+                        self._worker_key,
+                        "discovery",
+                        10,
+                        0,
+                        0,
+                        "Discovery still running",
+                    )
+                except Exception:
+                    logger.exception(
+                        "crawler_operation_lease_renewal_failed operation_id=%s",
+                        operation_id,
+                    )
+                    return
+
+        heartbeat = Thread(target=renew_lease, daemon=True)
+        heartbeat.start()
+        try:
+            if policy is not None:
+                return self._discoverer.discover_sync(base_url, policy)
+            return self._discoverer.discover_sync(base_url)
+        finally:
+            stopped.set()
+            heartbeat.join()
+
+    def _generate_profile_with_lease_renewal(
+        self,
+        operation_id: int,
+        sample_url: str,
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if self._profile_generator is None:
+            raise RuntimeError("profile generator is not configured")
+        stopped = Event()
+
+        def renew_lease() -> None:
+            while not stopped.wait(self._heartbeat_interval_seconds):
+                try:
+                    self._store.heartbeat(
+                        operation_id,
+                        self._worker_key,
+                        "profile_generation",
+                        10,
+                        0,
+                        0,
+                        "Profile generation still running",
+                    )
+                except Exception:
+                    logger.exception(
+                        "crawler_operation_lease_renewal_failed operation_id=%s",
+                        operation_id,
+                    )
+                    return
+
+        heartbeat = Thread(target=renew_lease, daemon=True)
+        heartbeat.start()
+        try:
+            if extraction_policy is not None:
+                return self._profile_generator.generate(
+                    sample_url,
+                    fields,
+                    extraction_policy,
+                )
+            return self._profile_generator.generate(sample_url, fields)
+        finally:
+            stopped.set()
+            heartbeat.join()
+
+    def _validate_profile_with_lease_renewal(
+        self,
+        operation_id: int,
+        plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self._validation_executor is None:
+            raise RuntimeError("profile validation executor is not configured")
+        stopped = Event()
+
+        def renew_lease() -> None:
+            while not stopped.wait(self._heartbeat_interval_seconds):
+                try:
+                    self._store.heartbeat(
+                        operation_id,
+                        self._worker_key,
+                        "profile_validation",
+                        10,
+                        0,
+                        0,
+                        "Profile validation still running",
+                    )
+                except Exception:
+                    logger.exception(
+                        "crawler_operation_lease_renewal_failed operation_id=%s",
+                        operation_id,
+                    )
+                    return
+
+        heartbeat = Thread(target=renew_lease, daemon=True)
+        heartbeat.start()
+        try:
+            return self._validation_executor.run(plan)
+        finally:
+            stopped.set()
+            heartbeat.join()
+
+    def _production_crawl_with_lease_renewal(
+        self,
+        operation_id: int,
+        plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self._production_crawl_executor is None:
+            raise RuntimeError("production crawl executor is not configured")
+        stopped = Event()
+        progress: dict[str, int | str] = {
+            "percentage": 10,
+            "processed": 0,
+            "total": 0,
+            "message": "Production crawl still running",
+        }
+
+        def report_progress(processed: int, total: int) -> None:
+            bounded_processed = max(0, min(processed, total)) if total > 0 else 0
+            percentage = (
+                min(90, 10 + round(80 * bounded_processed / total))
+                if total > 0
+                else 10
+            )
+            message = f"Processed {bounded_processed} of {total} URLs"
+            progress.update(
+                percentage=percentage,
+                processed=bounded_processed,
+                total=max(0, total),
+                message=message,
+            )
+            self._store.heartbeat(
+                operation_id,
+                self._worker_key,
+                "production_crawl",
+                percentage,
+                bounded_processed,
+                max(0, total),
+                message,
+            )
+
+        def renew_lease() -> None:
+            while not stopped.wait(self._heartbeat_interval_seconds):
+                try:
+                    self._store.heartbeat(
+                        operation_id,
+                        self._worker_key,
+                        "production_crawl",
+                        int(progress["percentage"]),
+                        int(progress["processed"]),
+                        int(progress["total"]),
+                        str(progress["message"]),
+                    )
+                except Exception:
+                    logger.exception(
+                        "crawler_operation_lease_renewal_failed operation_id=%s",
+                        operation_id,
+                    )
+                    return
+
+        heartbeat = Thread(target=renew_lease, daemon=True)
+        heartbeat.start()
+        try:
+            return self._production_crawl_executor.run(
+                plan,
+                lambda: self._store.cancellation_requested(
+                    operation_id, self._worker_key
+                ),
+                report_progress,
+            )
+        finally:
+            stopped.set()
+            heartbeat.join()
 
     def _log_operation_finished(
         self,

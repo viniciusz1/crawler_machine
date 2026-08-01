@@ -279,3 +279,25 @@ def test_selected_css_requires_a_css_schema(domain_config):
             schema=schema,
             extraction_policy={"strategies": ["css"]},
         )
+
+
+def test_invalid_css_schema_is_skipped_when_policy_has_fallbacks(domain_config):
+    schema = {
+        "schemas": {
+            "xpath": {"name": "items", "baseSelector": "//body"},
+            "css": {"name": "items", "baseSelector": "//body"},
+        }
+    }
+
+    engine = build_crawl_engine(
+        config=domain_config,
+        schema=schema,
+        extraction_policy={
+            "strategies": ["xpath", "css", "fit_markdown_regex"],
+        },
+    )
+
+    assert [strategy.name for strategy in engine._strategies] == [
+        "xpath",
+        "fit_markdown_regex",
+    ]

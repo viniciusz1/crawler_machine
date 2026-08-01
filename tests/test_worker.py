@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from threading import Event
 
 from crawler_machine.worker.runner import CrawlerWorker
 from crawler_machine.worker.store import ClaimedOperation
@@ -89,6 +90,188 @@ class FakeDiscoverer:
         ]
 
 
+class LeaseAwareOperationStore(FakeOperationStore):
+    def __init__(self, operation: ClaimedOperation) -> None:
+        super().__init__(operation)
+        self.lease_renewed = Event()
+
+    def heartbeat(
+        self,
+        operation_id: int,
+        worker_key: str,
+        stage: str,
+        percentage: int,
+        processed: int,
+        total: int,
+        message: str,
+    ) -> None:
+        super().heartbeat(
+            operation_id,
+            worker_key,
+            stage,
+            percentage,
+            processed,
+            total,
+            message,
+        )
+        if message == "Discovery still running":
+            self.lease_renewed.set()
+
+
+class DiscoveryWaitingForLeaseRenewal:
+    def __init__(self, lease_renewed: Event) -> None:
+        self._lease_renewed = lease_renewed
+        self.observed_renewal = False
+
+    def discover_sync(self, base_url: str) -> list[str]:
+        self.observed_renewal = self._lease_renewed.wait(timeout=0.2)
+        return [f"{base_url}/imovel/1"]
+
+
+class ProductionLeaseAwareOperationStore(FakeOperationStore):
+    def __init__(self, operation: ClaimedOperation) -> None:
+        super().__init__(operation)
+        self.lease_renewed = Event()
+
+    def heartbeat(
+        self,
+        operation_id: int,
+        worker_key: str,
+        stage: str,
+        percentage: int,
+        processed: int,
+        total: int,
+        message: str,
+    ) -> None:
+        super().heartbeat(
+            operation_id,
+            worker_key,
+            stage,
+            percentage,
+            processed,
+            total,
+            message,
+        )
+        if message == "Production crawl still running":
+            self.lease_renewed.set()
+
+
+class ProductionCrawlWaitingForLeaseRenewal:
+    def __init__(self, lease_renewed: Event) -> None:
+        self._lease_renewed = lease_renewed
+        self.observed_renewal = False
+
+    def run(self, plan: dict, should_cancel, on_progress) -> dict:
+        self.observed_renewal = self._lease_renewed.wait(timeout=0.2)
+        return {
+            "technical_state": "succeeded",
+            "result_kind": "full",
+            "publishable": True,
+            "discovery": {"mode": "existing", "snapshot_id": 5},
+            "raw_properties": [],
+            "market_properties": [],
+            "rejected_properties": [],
+            "errors": [],
+            "artifacts": [],
+            "technical_logs": [],
+        }
+
+
+class ProfileLeaseAwareOperationStore(FakeOperationStore):
+    def __init__(self, operation: ClaimedOperation) -> None:
+        super().__init__(operation)
+        self.lease_renewed = Event()
+
+    def heartbeat(
+        self,
+        operation_id: int,
+        worker_key: str,
+        stage: str,
+        percentage: int,
+        processed: int,
+        total: int,
+        message: str,
+    ) -> None:
+        super().heartbeat(
+            operation_id,
+            worker_key,
+            stage,
+            percentage,
+            processed,
+            total,
+            message,
+        )
+        if message == "Profile generation still running":
+            self.lease_renewed.set()
+
+
+class ProfileGenerationWaitingForLeaseRenewal:
+    def __init__(self, lease_renewed: Event) -> None:
+        self._lease_renewed = lease_renewed
+        self.observed_renewal = False
+
+    def generate(
+        self,
+        sample_url: str,
+        fields: list[dict],
+        extraction_policy: dict | None = None,
+    ) -> dict:
+        self.observed_renewal = self._lease_renewed.wait(timeout=0.2)
+        return {
+            "schemas": {"xpath": {"fields": []}, "css": {"fields": []}},
+            "strategies": ["xpath", "css"],
+            "fields": fields,
+            "parameters": {"sample_url": sample_url},
+        }
+
+
+class ValidationLeaseAwareOperationStore(FakeOperationStore):
+    def __init__(self, operation: ClaimedOperation) -> None:
+        super().__init__(operation)
+        self.lease_renewed = Event()
+
+    def heartbeat(
+        self,
+        operation_id: int,
+        worker_key: str,
+        stage: str,
+        percentage: int,
+        processed: int,
+        total: int,
+        message: str,
+    ) -> None:
+        super().heartbeat(
+            operation_id,
+            worker_key,
+            stage,
+            percentage,
+            processed,
+            total,
+            message,
+        )
+        if message == "Profile validation still running":
+            self.lease_renewed.set()
+
+
+class ProfileValidationWaitingForLeaseRenewal:
+    def __init__(self, lease_renewed: Event) -> None:
+        self._lease_renewed = lease_renewed
+        self.observed_renewal = False
+
+    def run(self, plan: dict) -> dict:
+        self.observed_renewal = self._lease_renewed.wait(timeout=0.2)
+        return {
+            "sampled_url_count": len(plan["urls"]),
+            "valid_record_count": len(plan["urls"]),
+            "valid_ratio": 1.0,
+            "required_field_coverage": {"url": 1.0},
+            "blocking_failures": [],
+            "warnings": [],
+            "eligible": True,
+            "records": [],
+        }
+
+
 class FakeSampleFinder:
     def find(self, base_url: str) -> str | None:
         assert base_url == "https://agency.example.com"
@@ -136,8 +319,9 @@ class FakeValidationExecutor:
 
 
 class FakeProductionCrawlExecutor:
-    def run(self, plan: dict, should_cancel) -> dict:
+    def run(self, plan: dict, should_cancel, on_progress) -> dict:
         assert plan["crawl_agency_id"] == 42
+        on_progress(2, 5)
         return {
             "technical_state": "succeeded",
             "result_kind": "full",
@@ -209,6 +393,29 @@ def test_worker_claims_and_completes_discovery_operation() -> None:
         )
     ]
     assert store.progress[-1][1:5] == ("discovery", 90, 2, 2)
+
+
+def test_worker_renews_operation_lease_while_discovery_is_still_running() -> None:
+    store = LeaseAwareOperationStore(
+        ClaimedOperation(
+            id=17,
+            type="discovery",
+            crawl_agency_id=42,
+            plan={"base_url": "https://agency.example.com"},
+        )
+    )
+    discoverer = DiscoveryWaitingForLeaseRenewal(store.lease_renewed)
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=discoverer,
+        worker_key="worker-a",
+        version="1.0.0",
+        heartbeat_interval_seconds=0.01,
+    )
+
+    assert worker.run_once() is True
+    assert discoverer.observed_renewal is True
+    assert store.completed == [(17, ["https://agency.example.com/imovel/1"])]
 
 
 def test_worker_logs_operation_start_end_and_duration(caplog) -> None:
@@ -364,6 +571,58 @@ def test_worker_persists_profile_validation_report() -> None:
     assert store.completed_validations[0][1]["eligible"] is True
 
 
+def test_worker_renews_operation_lease_while_profile_validation_is_still_running() -> None:
+    store = ValidationLeaseAwareOperationStore(
+        ClaimedOperation(
+            id=20,
+            type="profile_validation",
+            crawl_agency_id=42,
+            plan={"urls": ["https://agency.example.com/imovel/1"]},
+        )
+    )
+    validator = ProfileValidationWaitingForLeaseRenewal(store.lease_renewed)
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        validation_executor=validator,
+        worker_key="worker-a",
+        version="1.0.0",
+        heartbeat_interval_seconds=0.01,
+    )
+
+    assert worker.run_once() is True
+    assert validator.observed_renewal is True
+    assert store.completed_validations[0][0] == 20
+
+
+def test_worker_renews_operation_lease_while_profile_generation_is_still_running() -> None:
+    store = ProfileLeaseAwareOperationStore(
+        ClaimedOperation(
+            id=19,
+            type="profile_generation",
+            crawl_agency_id=42,
+            plan={
+                "sample_url": "https://agency.example.com/imovel/1",
+                "sample_url_confirmed": True,
+                "contract_fields": [{"name": "url"}],
+            },
+        )
+    )
+    generator = ProfileGenerationWaitingForLeaseRenewal(store.lease_renewed)
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        profile_generator=generator,
+        worker_key="worker-a",
+        version="1.0.0",
+        heartbeat_interval_seconds=0.01,
+    )
+
+    assert worker.run_once() is True
+    assert generator.observed_renewal is True
+    assert store.completed_profiles[0][0] == 19
+
+
 def test_worker_persists_production_crawl_without_publishing_it() -> None:
     store = FakeOperationStore(
         ClaimedOperation(
@@ -384,6 +643,38 @@ def test_worker_persists_production_crawl_without_publishing_it() -> None:
     assert worker.run_once() is True
     assert store.completed_production_crawls[0][0] == 11
     assert store.completed_production_crawls[0][1]["publishable"] is True
+    assert (
+        11,
+        "production_crawl",
+        42,
+        2,
+        5,
+        "Processed 2 of 5 URLs",
+    ) in store.progress
+
+
+def test_worker_renews_operation_lease_while_production_crawl_is_still_running() -> None:
+    store = ProductionLeaseAwareOperationStore(
+        ClaimedOperation(
+            id=18,
+            type="production_crawl",
+            crawl_agency_id=42,
+            plan={"crawl_agency_id": 42},
+        )
+    )
+    executor = ProductionCrawlWaitingForLeaseRenewal(store.lease_renewed)
+    worker = CrawlerWorker(
+        store=store,
+        discoverer=FakeDiscoverer(),
+        production_crawl_executor=executor,
+        worker_key="worker-a",
+        version="1.0.0",
+        heartbeat_interval_seconds=0.01,
+    )
+
+    assert worker.run_once() is True
+    assert executor.observed_renewal is True
+    assert store.completed_production_crawls[0][0] == 18
 
 
 def test_worker_honors_cancellation_before_starting_expensive_work() -> None:

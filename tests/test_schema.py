@@ -5,6 +5,7 @@ import pytest
 from dotenv import load_dotenv
 
 from tests.crawler_schema import ensure_schema
+from tests.database_safety import database_tests_enabled
 
 load_dotenv()
 
@@ -19,6 +20,10 @@ def _connect():
     )
 
 
+@pytest.mark.skipif(
+    not database_tests_enabled(),
+    reason="Dedicated Postgres test database not configured",
+)
 def test_ensure_schema_creates_crawler_catalog_tables():
     """O helper de teste consegue criar as tabelas esperadas localmente.
 

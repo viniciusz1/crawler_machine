@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from crawler_machine.normalization.result import NormalizationResult
 
@@ -18,6 +18,11 @@ class ImageNormalizer:
             return NormalizationResult(value=None, omitted=True)
 
         parsed = urlparse(text)
+        if (not parsed.scheme or not parsed.netloc) and record is not None:
+            page_url = record.get("url")
+            if isinstance(page_url, str):
+                text = urljoin(page_url, text)
+                parsed = urlparse(text)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             return NormalizationResult(
                 value=None,

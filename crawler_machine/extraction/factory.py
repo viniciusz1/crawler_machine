@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from crawler_machine.config import DomainConfig
@@ -20,6 +21,8 @@ CANONICAL_EXTRACTION_STRATEGIES = (
     "fit_markdown_llm",
     "llm_full_html",
 )
+
+logger = logging.getLogger(__name__)
 
 
 def build_crawl_engine(
@@ -59,7 +62,10 @@ def build_crawl_engine(
             strategies.append(XPathStrategy(config=config.crawler, schema=xpath_schema))
         elif strategy_name == "css":
             if not css_schema or detect_schema_type(css_schema) != "CSS":
-                raise ValueError("selected CSS strategy requires a valid CSS schema")
+                if len(selected) == 1:
+                    raise ValueError("selected CSS strategy requires a valid CSS schema")
+                logger.warning("crawler_invalid_css_schema_skipped fallbacks=%s", selected)
+                continue
             strategies.append(CssStrategy(schema=css_schema))
         elif strategy_name == "fit_markdown_regex":
             strategies.append(FitMarkdownRegexStrategy(fields=config.fields))

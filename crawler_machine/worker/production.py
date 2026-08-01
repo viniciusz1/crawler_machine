@@ -30,6 +30,7 @@ class ProductionCrawlExecutor:
         self,
         plan: dict[str, Any],
         should_cancel: Callable[[], bool] | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
         discovery = dict(plan["discovery"])
         raw_properties: list[dict[str, Any]] = []
@@ -40,6 +41,7 @@ class ProductionCrawlExecutor:
         fatal = False
         cancelled = False
         cancellation_check = should_cancel or (lambda: False)
+        progress_callback = on_progress or (lambda _processed, _total: None)
 
         try:
             discovery_policy = plan.get("discovery_policy")
@@ -110,6 +112,7 @@ class ProductionCrawlExecutor:
                         "errors": list(extraction_errors),
                     }
                 )
+                progress_callback(len(raw_properties), len(urls))
                 continue
 
             normalized = self._normalizer.normalize(raw, fields)
@@ -129,6 +132,7 @@ class ProductionCrawlExecutor:
                         "errors": ["required field omitted during normalization"],
                     }
                 )
+                progress_callback(len(raw_properties), len(urls))
                 continue
 
             market_properties.append(
@@ -141,6 +145,7 @@ class ProductionCrawlExecutor:
                     "extraction_trace": trace,
                 }
             )
+            progress_callback(len(raw_properties), len(urls))
 
         technical_state = "cancelled" if cancelled else ("failed" if fatal else "succeeded")
         publishable = technical_state == "succeeded" and bool(market_properties)

@@ -70,10 +70,21 @@ class ProfileValidationExecutor:
             quality = normalized_data.get("_quality", {}) if normalized_data else {}
             normalization_warnings = [str(item) for item in quality.get("warnings", [])]
             warnings.extend(normalization_warnings)
+            normalized_missing = [
+                field
+                for field in required_fields
+                if normalized_data is None
+                or not self._is_meaningful(normalized_data.get(field))
+            ]
+            if normalized_missing:
+                errors.append(
+                    "required fields omitted during normalization: "
+                    + ", ".join(normalized_missing)
+                )
             is_valid = (
                 raw_data is not None
                 and not missing
-                and bool(quality.get("valid", False))
+                and not normalized_missing
             )
             if is_valid:
                 valid_count += 1

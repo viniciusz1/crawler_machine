@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from crawler_machine.sink import PostgresConfig, RunStore
 from tests.catalog_seed import seed_test_catalogs
 from tests.crawler_schema import ensure_schema
+from tests.database_safety import database_tests_enabled
 
 load_dotenv()
 
@@ -50,7 +51,10 @@ def sink():
     return RunStore(config)
 
 
-@pytest.mark.skipif(not os.getenv("DB_HOST"), reason="Postgres not configured")
+@pytest.mark.skipif(
+    not database_tests_enabled(),
+    reason="Dedicated Postgres test database not configured",
+)
 def test_save_run_persists_raw_and_normalized_properties(sink):
     raw_properties = [
         {

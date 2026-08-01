@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_LISTING_PATTERNS = [
     r"/imovel/",
+    r"/\d{3,}/?(?:\?.*)?$",
+    r"/detalhes_(?:loc|vd)\.php\?imovel=\d+",
     r"/(comprar|alugar|vender)/",
     r"/(apartamento|casa|terreno|sobrado|sala-comercial|loft|chacara|rural)-",
 ]
@@ -138,9 +140,11 @@ class URLDiscoverer:
         max_urls: int = 500,
         listing_patterns: list[str] | None = None,
         sitemap_fetcher: SitemapFetcher | None = None,
+        mapper_timeout_seconds: float = 60.0,
     ):
         self._mapper = mapper or DomainMapperAdapter()
         self._sitemap_fetcher = sitemap_fetcher or HttpSitemapFetcher()
+        self._mapper_timeout_seconds = mapper_timeout_seconds
         self.max_urls = max_urls
         self._listing_patterns = (
             _DEFAULT_LISTING_PATTERNS
@@ -151,25 +155,51 @@ class URLDiscoverer:
     async def discover(self, base_url: str, policy: dict[str, Any] | None = None) -> list[str]:
         """Descobre URLs a partir da URL base."""
         policy = policy or {}
+        configuration = policy.get("configuration")
+        options = dict(configuration) if isinstance(configuration, dict) else {}
+        options.update({
+            key: policy[key]
+            for key in ["max_urls", "include_subdomains", "use_browser_for_homepage", "query", "score_threshold", "probe_paths", "common_subdomains"]
+            if key in policy
+        })
         mapper_policy = {
             **({"source": "+".join(policy["sources"])} if policy.get("sources") else {}),
-            **{key: policy[key] for key in ["max_urls", "include_subdomains", "use_browser_for_homepage", "query", "score_threshold", "probe_paths", "common_subdomains"] if key in policy},
+            **options,
         }
-        results = await self._mapper.scan(base_url, **mapper_policy)
-        if not results and self._uses_sitemap(policy):
-            logger.info("crawler_sitemap_fallback_started base_url=%s", base_url)
+        try:
+            mapped = await asyncio.wait_for(
+                self._mapper.scan(base_url, **mapper_policy),
+                timeout=self._mapper_timeout_seconds,
+            )
+            results = list(mapped)
+        except TimeoutError:
+            logger.warning(
+                "crawler_domain_mapper_timed_out base_url=%s timeout_seconds=%s",
+                base_url,
+                self._mapper_timeout_seconds,
+            )
+            results = []
+        if self._uses_sitemap(policy):
+            logger.info("crawler_sitemap_source_started base_url=%s", base_url)
             fallback_urls = await self._sitemap_fetcher.fetch(base_url)
-            results = [
+            results.extend(
                 {"url": url}
                 for url in fallback_urls
-            ]
+            )
             logger.info(
-                "crawler_sitemap_fallback_finished base_url=%s urls=%s",
+                "crawler_sitemap_source_finished base_url=%s urls=%s",
                 base_url,
                 len(fallback_urls),
             )
 
+        return self._listing_urls(
+            results,
+            int(options.get("max_urls", self.max_urls)),
+        )
+
+    def _listing_urls(self, results: list[dict[str, Any]], max_urls: int) -> list[str]:
         urls: list[str] = []
+        seen: set[str] = set()
         compiled = [re.compile(pattern) for pattern in self._listing_patterns]
         for item in results:
             if not isinstance(item, dict):
@@ -179,8 +209,11 @@ class URLDiscoverer:
                 continue
             if compiled and not any(pattern.search(url) for pattern in compiled):
                 continue
+            if url in seen:
+                continue
+            seen.add(url)
             urls.append(url)
-            if len(urls) >= int(policy.get("max_urls", self.max_urls)):
+            if len(urls) >= max_urls:
                 break
 
         return urls

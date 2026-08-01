@@ -29,11 +29,29 @@ class FakeNormalizer:
         fields: list[dict[str, Any]],
     ) -> dict[str, Any]:
         invalid = int(str(record["url"]).rsplit("/", 1)[-1]) > 16
-        return {
+        normalized = {
             **record,
             "_quality": {
                 "valid": not invalid,
                 "warnings": ["normalization warning"] if invalid else [],
+            },
+        }
+        if invalid:
+            normalized.pop("title", None)
+        return normalized
+
+
+class OptionalWarningNormalizer:
+    def normalize(
+        self,
+        record: dict[str, Any],
+        fields: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            **record,
+            "_quality": {
+                "valid": False,
+                "warnings": ["optional boolean was omitted"],
             },
         }
 
@@ -87,3 +105,15 @@ def test_no_valid_records_is_a_blocking_failure() -> None:
 
     assert report["blocking_failures"] == ["no_urls_sampled", "no_valid_records"]
     assert report["eligible"] is False
+
+
+def test_optional_normalization_warnings_do_not_invalidate_required_fields() -> None:
+    report = ProfileValidationExecutor(
+        extractor=FakeExtractor(), normalizer=OptionalWarningNormalizer()
+    ).run(_plan(url_count=1))
+
+    assert report["valid_record_count"] == 1
+    assert report["valid_ratio"] == 1.0
+    assert report["warnings"] == ["optional boolean was omitted"]
+    assert report["records"][0]["is_valid"] is True
+    assert report["eligible"] is True
