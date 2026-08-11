@@ -33,7 +33,6 @@ def build_market_rows(
     run_id: int,
     normalized_properties: list[dict[str, Any]],
     raw_ids: list[int],
-    source_name: str,
     market_property_columns: list[str],
 ) -> list[tuple]:
     rows: list[tuple] = []
@@ -49,9 +48,7 @@ def build_market_rows(
         row.append(record.get("url"))
 
         for column in market_property_columns[3:]:
-            if column == "imobiliaria":
-                value = renamed.get("imobiliaria") or source_name
-            elif column == "quality_status":
+            if column == "quality_status":
                 value = quality_status
             elif column == "quality_metadata":
                 value = json.dumps(quality_metadata)

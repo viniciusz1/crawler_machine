@@ -125,7 +125,6 @@ class RunStore:
                             run_id,
                             normalized_properties,
                             raw_ids,
-                            source_name,
                             MARKET_PROPERTY_COLUMNS,
                         )
                         execute_values(

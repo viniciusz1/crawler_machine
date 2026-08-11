@@ -98,9 +98,13 @@ CREATE TABLE IF NOT EXISTS crawler.property_types (
     name TEXT NOT NULL UNIQUE,
     slug TEXT NOT NULL UNIQUE,
     aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+ALTER TABLE crawler.property_types
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS crawler.raw_properties (
     id SERIAL PRIMARY KEY,
@@ -146,7 +150,6 @@ CREATE TABLE IF NOT EXISTS crawler.market_properties (
     raw_property_id INT REFERENCES crawler.raw_properties(id) ON DELETE SET NULL,
     source_url TEXT,
     tipo TEXT,
-    imobiliaria TEXT,
     valor NUMERIC,
     bairro TEXT,
     cidade TEXT,

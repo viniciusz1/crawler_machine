@@ -25,10 +25,14 @@ class DataNormalizer:
     def __init__(
         self,
         catalog_repository: CatalogRepository | None = None,
+        property_type_catalog_repository: CatalogRepository | None = None,
         city_slug: str | None = None,
         field_normalizers: dict[str, FieldNormalizer] | None = None,
     ):
         self._catalog = catalog_repository
+        self._property_type_catalog = (
+            property_type_catalog_repository or catalog_repository
+        )
         self._city_slug = city_slug
         self._field_normalizers = (
             self._build_default_normalizers()
@@ -38,8 +42,12 @@ class DataNormalizer:
 
     def _build_default_normalizers(self) -> dict[str, FieldNormalizer]:
         normalizers: dict[str, FieldNormalizer] = {}
+        if self._property_type_catalog is not None:
+            normalizers["tipo_imovel"] = PropertyTypeNormalizer(
+                self._property_type_catalog
+            )
+
         if self._catalog is not None:
-            normalizers["tipo_imovel"] = PropertyTypeNormalizer(self._catalog)
             normalizers["cidade"] = CityNormalizer(self._catalog)
             if self._city_slug is not None:
                 normalizers["bairro"] = NeighborhoodNormalizer(self._catalog, self._city_slug)

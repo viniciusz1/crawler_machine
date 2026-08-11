@@ -8,11 +8,14 @@ from pathlib import Path
 
 import typer
 
+from crawler_machine.catalog import CatalogRepository
 from crawler_machine.cli.app import app
 from crawler_machine.cli.helpers import load_config, load_env_file, setup_logging
 from crawler_machine.discoverer import URLDiscoverer
+from crawler_machine.normalization.engine import DataNormalizer
 from crawler_machine.prospecting.places import GooglePlacesGateway
 from crawler_machine.sink.config import PostgresConfig
+from crawler_machine.sink.connection import connect
 from crawler_machine.worker.adapters import (
     ConfiguredProfileExtractor,
     ExtractionProfileGenerator,
@@ -50,6 +53,13 @@ def worker(
     domain_config = load_config(config_path)
 
     operation_store = PostgresOperationStore(config)
+    with connect(config) as connection:
+        property_type_catalog = CatalogRepository.from_property_types_postgres(
+            connection
+        )
+    record_normalizer = DataNormalizer(
+        property_type_catalog_repository=property_type_catalog
+    )
     discoverer = URLDiscoverer()
     profile_extractor = ConfiguredProfileExtractor(domain_config)
     places_api_key = os.environ.get("GOOGLE_PLACES_API_KEY")
@@ -61,11 +71,13 @@ def worker(
         sample_finder=HomeSampleFinderAdapter(),
         profile_generator=ExtractionProfileGenerator(domain_config.llm),
         validation_executor=ProfileValidationExecutor(
-            profile_extractor
+            profile_extractor,
+            normalizer=record_normalizer,
         ),
         production_crawl_executor=ProductionCrawlExecutor(
             discoverer=discoverer,
             extractor=profile_extractor,
+            normalizer=record_normalizer,
         ),
         prospecting_executor=(
             ProspectingExecutor(GooglePlacesGateway(places_api_key))

@@ -120,3 +120,22 @@ def test_from_postgres_loads_catalogs():
         assert property_type["slug"] == "sobrado-geminado"
     finally:
         connection.close()
+
+
+@pytest.mark.skipif(
+    not database_tests_enabled(),
+    reason="Dedicated Postgres test database not configured",
+)
+def test_from_property_types_postgres_does_not_require_location_catalogs():
+    connection = _connect()
+    try:
+        ensure_schema(connection)
+        seed_test_catalogs(connection)
+        repo = CatalogRepository.from_property_types_postgres(connection)
+
+        property_type = repo.find_property_type("Apto")
+        assert property_type is not None
+        assert property_type["slug"] == "apartamento"
+        assert repo.find_city("Jaraguá do Sul") is None
+    finally:
+        connection.close()

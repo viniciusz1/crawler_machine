@@ -49,11 +49,23 @@ def test_normalizer_adds_quality_metadata_for_unknown_values():
 
     result = normalizer.normalize(record)
 
-    assert result["tipo_imovel"] == "Castelo"
+    assert "tipo_imovel" not in result
     assert result["bairro"] == "Moema"
     assert result["cidade"] == "Joinville"
     assert result["_quality"]["valid"] is False
     assert len(result["_quality"]["warnings"]) == 3
+
+
+def test_normalizer_can_use_only_the_property_type_catalog():
+    normalizer = DataNormalizer(property_type_catalog_repository=_repo())
+
+    result = normalizer.normalize(
+        {"tipo_imovel": "apto", "cidade": "Cidade ainda sem catálogo"}
+    )
+
+    assert result["tipo_imovel"] == "Apartamento"
+    assert result["cidade"] == "Cidade ainda sem catálogo"
+    assert result["_quality"]["valid"] is True
 
 
 def test_normalizer_generates_quality_report():

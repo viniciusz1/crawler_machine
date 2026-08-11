@@ -43,7 +43,6 @@ MARKET_PROPERTY_COLUMNS = [
     "raw_property_id",
     "source_url",
     "tipo",
-    "imobiliaria",
     "valor",
     "bairro",
     "cidade",

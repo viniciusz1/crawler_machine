@@ -108,7 +108,9 @@ class CatalogRepository:
                 for alias in neighborhood["aliases"]:
                     neighborhoods[f"{row[5]}:{normalize_key(alias)}"] = neighborhood
 
-            cursor.execute("SELECT id, name, slug, aliases FROM crawler.property_types")
+            cursor.execute(
+                "SELECT id, name, slug, aliases FROM crawler.property_types WHERE is_active = TRUE"
+            )
             for row in cursor.fetchall():
                 property_type = {"id": row[0], "name": row[1], "slug": row[2], "aliases": row[3] or []}
                 property_types[row[2]] = property_type
@@ -117,6 +119,26 @@ class CatalogRepository:
                     property_types[normalize_key(alias)] = property_type
 
         return cls(Catalog(cities=cities, neighborhoods=neighborhoods, property_types=property_types))
+
+    @classmethod
+    def from_property_types_postgres(cls, connection: Any) -> "CatalogRepository":
+        """Carrega somente o catálogo global de tipos de imóvel."""
+        property_types: dict[str, dict[str, Any]] = {}
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, name, slug, aliases FROM crawler.property_types WHERE is_active = TRUE"
+            )
+            for row in cursor.fetchall():
+                property_type = {
+                    "id": row[0],
+                    "name": row[1],
+                    "slug": row[2],
+                    "aliases": row[3] or [],
+                }
+                property_types[row[2]] = property_type
+
+        return cls(Catalog(cities={}, neighborhoods={}, property_types=property_types))
 
     def find_city(self, raw_name: str) -> dict[str, Any] | None:
         """Busca uma cidade pelo nome normalizado."""

@@ -35,11 +35,12 @@ def test_normalizes_property_type_by_alias():
     assert result.is_valid is True
 
 
-def test_keeps_unknown_property_type_with_warning():
+def test_omits_unknown_property_type_with_warning():
     normalizer = PropertyTypeNormalizer(_repo())
     result = normalizer.normalize("Castelo")
-    assert result.value == "Castelo"
+    assert result.value is None
     assert result.is_valid is False
+    assert result.omitted is True
     assert any("fora do catálogo" in w for w in result.warnings)
 
 

@@ -25,7 +25,8 @@ class PropertyTypeNormalizer:
             return NormalizationResult(value=catalog_item["name"], is_valid=True)
 
         return NormalizationResult(
-            value=text,
+            value=None,
             is_valid=False,
             warnings=[f"tipo_imovel fora do catálogo: {text}"],
+            omitted=True,
         )

@@ -509,7 +509,7 @@ class PostgresOperationStore:
                         cursor.execute(
                             """
                             INSERT INTO crawler.market_properties
-                                (crawler_run_id, raw_property_id, tipo, imobiliaria, valor,
+                                (crawler_run_id, raw_property_id, tipo, valor,
                                  bairro, cidade, imagem, link_imovel, descricao, quartos,
                                  suites, banheiros, vagas, area, aceita_permuta, financiamento,
                                  piscina, churrasqueira, academia, salao_festas, playground,
@@ -519,13 +519,12 @@ class PostgresOperationStore:
                                  extraction_trace, created_at)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                             """,
                             (
                                 run_id,
                                 raw_id,
                                 payload.get("tipo_imovel", payload.get("tipo")),
-                                payload.get("imobiliaria"),
                                 payload.get("valor"),
                                 payload.get("bairro"),
                                 payload.get("cidade"),
