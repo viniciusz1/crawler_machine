@@ -11,9 +11,11 @@ from crawler_machine.extraction.strategies.http_runner import HttpRunner
 
 logger = logging.getLogger(__name__)
 
+CrawlOutcome = tuple[dict[str, Any] | None, dict[str, Any] | None]
+
 
 class HtmlCollector(Protocol):
-    async def run(self, url: str) -> CrawlResult: ...
+    async def run_many(self, urls: list[str]) -> list[CrawlResult]: ...
 
 
 class CrawlEngine:
@@ -36,24 +38,57 @@ class CrawlEngine:
         urls: list[str],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Executa a cadeia de fallback para cada URL."""
+        outcomes = await self.crawl_many(urls)
         data: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
+
+        for result, error in outcomes:
+            if error is not None:
+                errors.append(error)
+            if result is not None:
+                data.append(result)
+
+        return data, errors
+
+    async def crawl_many(self, urls: list[str]) -> list[CrawlOutcome]:
+        """Executa o crawl em lotes e preserva um resultado por URL."""
+        if not urls:
+            return []
+
+        outcomes: list[CrawlOutcome] = []
+        extraction_limit = asyncio.Semaphore(max(1, self._config.max_concurrent))
 
         for index, chunk in enumerate(self._chunks(urls, self._config.chunk_size)):
             if index > 0 and self._config.chunk_delay > 0:
                 await asyncio.sleep(self._config.chunk_delay)
 
-            chunk_results = await asyncio.gather(
-                *[self._crawl_single(url) for url in chunk]
+            try:
+                fetched_results = await self._html_collector.run_many(chunk)
+            except Exception as exc:  # pragma: no cover - adapter safety net
+                logger.exception("Batch HTML collection failed")
+                outcomes.extend(
+                    (None, {"url": url, "error": str(exc)}) for url in chunk
+                )
+                continue
+
+            if len(fetched_results) != len(chunk):
+                error = "Batch HTML collection returned an invalid result count"
+                outcomes.extend((None, {"url": url, "error": error}) for url in chunk)
+                continue
+
+            chunk_outcomes = await asyncio.gather(
+                *(
+                    self._extract_with_limit(
+                        extraction_limit,
+                        url,
+                        fetched,
+                    )
+                    for url, fetched in zip(chunk, fetched_results, strict=True)
+                )
             )
+            outcomes.extend(chunk_outcomes)
 
-            for result, error in chunk_results:
-                if error is not None:
-                    errors.append(error)
-                if result is not None:
-                    data.append(result)
-
-        return data, errors
+        return outcomes
 
     def crawl_sync(
         self, urls: list[str]
@@ -61,15 +96,25 @@ class CrawlEngine:
         """Versão síncrona de ``crawl``."""
         return asyncio.run(self.crawl(urls))
 
-    async def _crawl_single(
-        self, url: str
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        """Executa a cadeia de fallback para uma única URL."""
-        try:
-            fetched = await self._html_collector.run(url)
-        except Exception as exc:  # pragma: no cover - adapter safety net
-            logger.exception("HTML collection failed for %s", url)
-            return None, {"url": url, "error": str(exc)}
+    def crawl_many_sync(self, urls: list[str]) -> list[CrawlOutcome]:
+        """Versão síncrona de ``crawl_many``."""
+        return asyncio.run(self.crawl_many(urls))
+
+    async def _extract_with_limit(
+        self,
+        semaphore: asyncio.Semaphore,
+        url: str,
+        fetched: CrawlResult,
+    ) -> CrawlOutcome:
+        async with semaphore:
+            return await self._extract_fetched(url, fetched)
+
+    async def _extract_fetched(
+        self,
+        url: str,
+        fetched: CrawlResult,
+    ) -> CrawlOutcome:
+        """Executa a cadeia de fallback sobre HTML já coletado."""
         if not fetched.success:
             return None, {
                 "url": url,

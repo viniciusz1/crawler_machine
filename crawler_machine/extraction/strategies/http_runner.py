@@ -11,6 +11,7 @@ from crawler_machine.extraction.strategies.crawl4ai_browser import Crawl4AIBrows
 logger = logging.getLogger(__name__)
 
 FetchFunc = Callable[[str], Awaitable[CrawlResult]]
+FetchManyFunc = Callable[[list[str]], Awaitable[list[CrawlResult]]]
 
 
 class HttpRunner:
@@ -20,30 +21,78 @@ class HttpRunner:
         self,
         config: CrawlerConfig,
         fetch: FetchFunc | None = None,
+        fetch_many: FetchManyFunc | None = None,
     ):
         self._config = config
-        self._fetch = fetch or Crawl4AIBrowser(config).fetch
+        if fetch_many is not None:
+            self._fetch_many = fetch_many
+        elif fetch is not None:
+
+            async def fetch_individually(urls: list[str]) -> list[CrawlResult]:
+                return list(await asyncio.gather(*(fetch(url) for url in urls)))
+
+            self._fetch_many = fetch_individually
+        else:
+            self._fetch_many = Crawl4AIBrowser(config).fetch_many
 
     async def run(self, url: str) -> CrawlResult:
-        """Executa fetch com retry em erros transientes."""
-        pending = url
-        last_error: str | None = None
+        """Executa uma coleta unitária sobre o fluxo em lote."""
+        return (await self.run_many([url]))[0]
+
+    async def run_many(self, urls: list[str]) -> list[CrawlResult]:
+        """Executa fetch em lote e repete somente falhas transientes."""
+        if not urls:
+            return []
+
+        pending = list(dict.fromkeys(urls))
+        completed: dict[str, CrawlResult] = {}
 
         for attempt in range(self._config.retry_attempts):
-            result = await self._fetch(pending)
-            if result.success or not self._is_transient_error(result.error):
-                return result
-            last_error = result.error
+            batch_results = await self._fetch_many(pending)
+            if len(batch_results) != len(pending):
+                raise RuntimeError(
+                    "Batch HTML collection returned a different number of results"
+                )
+
+            retry_urls: list[str] = []
+            for requested_url, result in zip(pending, batch_results, strict=True):
+                should_retry = (
+                    not result.success
+                    and self._is_transient_error(result.error)
+                    and attempt < self._config.retry_attempts - 1
+                )
+                if should_retry:
+                    retry_urls.append(requested_url)
+                else:
+                    completed[requested_url] = result
+
+            pending = retry_urls
+            if not pending:
+                break
             if attempt < self._config.retry_attempts - 1:
                 delay = self._config.retry_base_delay * (2 ** attempt)
                 await asyncio.sleep(delay)
 
-        return CrawlResult(
-            url=url,
-            success=False,
-            data=[],
-            error=last_error or "Max retry attempts exceeded",
-        )
+        for url in pending:
+            completed[url] = CrawlResult(
+                url=url,
+                success=False,
+                data=[],
+                error="Max retry attempts exceeded",
+            )
+
+        return [
+            completed.get(
+                url,
+                CrawlResult(
+                    url=url,
+                    success=False,
+                    data=[],
+                    error="Max retry attempts exceeded",
+                ),
+            )
+            for url in urls
+        ]
 
     @staticmethod
     def _is_transient_error(error_message: str | None) -> bool:

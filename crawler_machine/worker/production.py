@@ -75,22 +75,59 @@ class ProductionCrawlExecutor:
         required_fields = [
             str(field["name"]) for field in fields if field.get("required") is True
         ]
+        extracted_rows: list[tuple[str, dict[str, Any] | None, list[str]]] = []
+        batch_extract = getattr(self._extractor, "extract_many", None)
 
-        for url in urls:
-            if cancellation_check():
+        if callable(batch_extract):
+            if urls and cancellation_check():
                 cancelled = True
-                break
-            try:
-                extracted, extraction_errors = (
-                    self._extractor.extract(url, schemas, fields, extraction_policy)
-                    if extraction_policy is not None
-                    else self._extractor.extract(url, schemas, fields)
-                )
-            except Exception as exception:
-                fatal = True
-                errors.append({"stage": "crawl", "url": url, "message": str(exception)})
-                break
+            elif urls:
+                try:
+                    batch_results = (
+                        batch_extract(urls, schemas, fields, extraction_policy)
+                        if extraction_policy is not None
+                        else batch_extract(urls, schemas, fields)
+                    )
+                    if len(batch_results) != len(urls):
+                        raise RuntimeError(
+                            "Profile extractor returned an invalid result count"
+                        )
+                    extracted_rows.extend(
+                        (url, extracted, extraction_errors)
+                        for url, (extracted, extraction_errors) in zip(
+                            urls,
+                            batch_results,
+                            strict=True,
+                        )
+                    )
+                except Exception as exception:
+                    fatal = True
+                    errors.append({"stage": "crawl", "message": str(exception)})
+        else:
+            for url in urls:
+                if cancellation_check():
+                    cancelled = True
+                    break
+                try:
+                    extracted, extraction_errors = (
+                        self._extractor.extract(
+                            url,
+                            schemas,
+                            fields,
+                            extraction_policy,
+                        )
+                        if extraction_policy is not None
+                        else self._extractor.extract(url, schemas, fields)
+                    )
+                    extracted_rows.append((url, extracted, extraction_errors))
+                except Exception as exception:
+                    fatal = True
+                    errors.append(
+                        {"stage": "crawl", "url": url, "message": str(exception)}
+                    )
+                    break
 
+        for url, extracted, extraction_errors in extracted_rows:
             raw = dict(extracted or {})
             trace = dict(raw.pop("_extraction_trace", {}))
             raw_index = len(raw_properties)

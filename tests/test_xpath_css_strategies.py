@@ -163,3 +163,49 @@ async def test_http_runner_retries_on_transient_error(crawler_config, monkeypatc
     assert result.success
     assert result.html == HTML
     assert len(attempts) == 2
+
+
+@pytest.mark.anyio
+async def test_http_runner_retries_only_transient_batch_failures(monkeypatch):
+    calls: list[list[str]] = []
+    sleeps: list[float] = []
+    first_url = "https://example.com/1"
+    second_url = "https://example.com/2"
+
+    async def fetch_many(urls: list[str]) -> list[CrawlResult]:
+        calls.append(list(urls))
+        if len(calls) == 1:
+            return [
+                CrawlResult(url=first_url, success=True, data=[], html=HTML),
+                CrawlResult(
+                    url=second_url,
+                    success=False,
+                    data=[],
+                    error="Page.goto: Timeout 30000ms exceeded",
+                ),
+            ]
+        return [CrawlResult(url=second_url, success=True, data=[], html=HTML)]
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(
+        "crawler_machine.extraction.strategies.http_runner.asyncio.sleep",
+        fake_sleep,
+    )
+    config = CrawlerConfig(
+        page_timeout=30000,
+        max_concurrent=5,
+        chunk_size=50,
+        chunk_delay=0.0,
+        headless=True,
+        retry_attempts=3,
+        retry_base_delay=2.0,
+    )
+    runner = HttpRunner(config, fetch_many=fetch_many)
+
+    results = await runner.run_many([first_url, second_url])
+
+    assert [result.success for result in results] == [True, True]
+    assert calls == [[first_url, second_url], [second_url]]
+    assert sleeps == [2.0]

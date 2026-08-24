@@ -51,6 +51,11 @@ class ErrorStrategy(ExtractionStrategy):
 class FakeHtmlCollector:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.batches: list[list[str]] = []
+
+    async def run_many(self, urls: list[str]) -> list[CrawlResult]:
+        self.batches.append(list(urls))
+        return [await self.run(url) for url in urls]
 
     async def run(self, url: str) -> CrawlResult:
         self.calls.append(url)
@@ -64,13 +69,16 @@ class FakeHtmlCollector:
 
 
 class FailingHtmlCollector:
-    async def run(self, url: str) -> CrawlResult:
-        return CrawlResult(
-            url=url,
-            success=False,
-            data=[],
-            error="browser failed",
-        )
+    async def run_many(self, urls: list[str]) -> list[CrawlResult]:
+        return [
+            CrawlResult(
+                url=url,
+                success=False,
+                data=[],
+                error="browser failed",
+            )
+            for url in urls
+        ]
 
 
 @pytest.fixture
@@ -255,18 +263,65 @@ async def test_engine_chunks_urls_and_respects_delay(monkeypatch):
         returns={f"https://example.com/{i}": {"bairro": f"Bairro {i}"} for i in range(3)},
     )
 
+    collector = FakeHtmlCollector()
     engine = CrawlEngine(
         config=config,
         required_fields=REQUIRED_FIELDS,
         strategies=[strategy],
-        html_collector=FakeHtmlCollector(),
+        html_collector=collector,
     )
 
     results, _ = await engine.crawl([f"https://example.com/{i}" for i in range(3)])
 
     assert len(results) == 3
+    assert collector.batches == [
+        ["https://example.com/0", "https://example.com/1"],
+        ["https://example.com/2"],
+    ]
     assert len(sleeps) == 1
     assert sleeps[0] == 1.5
+
+
+@pytest.mark.anyio
+async def test_engine_returns_results_aligned_with_the_requested_urls(crawler_config):
+    class PartiallyFailingCollector:
+        async def run_many(self, urls: list[str]) -> list[CrawlResult]:
+            return [
+                CrawlResult(
+                    url=urls[0],
+                    success=True,
+                    data=[],
+                    html=f"<html>{urls[0]}</html>",
+                ),
+                CrawlResult(
+                    url=urls[1],
+                    success=False,
+                    data=[],
+                    error="browser failed",
+                ),
+            ]
+
+    urls = ["https://example.com/1", "https://example.com/2"]
+    strategy = FakeStrategy(
+        "a",
+        returns={urls[0]: {"bairro": "Centro"}},
+    )
+    engine = CrawlEngine(
+        config=crawler_config,
+        required_fields=REQUIRED_FIELDS,
+        strategies=[strategy],
+        html_collector=PartiallyFailingCollector(),
+    )
+
+    outcomes = await engine.crawl_many(urls)
+
+    assert outcomes[0][0] is not None
+    assert outcomes[0][0]["url"] == urls[0]
+    assert outcomes[0][1] is None
+    assert outcomes[1] == (
+        None,
+        {"url": urls[1], "error": "browser failed"},
+    )
 
 
 @pytest.mark.anyio

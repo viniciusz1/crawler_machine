@@ -75,6 +75,21 @@ class ConfiguredProfileExtractor:
         fields: list[dict[str, Any]],
         extraction_policy: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
+        return self.extract_many(
+            [url],
+            schemas,
+            fields,
+            extraction_policy,
+        )[0]
+
+    def extract_many(
+        self,
+        urls: list[str],
+        schemas: dict[str, Any],
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
+    ) -> list[tuple[dict[str, Any] | None, list[str]]]:
+        """Extrai um conjunto de URLs com uma única instância do engine."""
         field_config = [
             FieldConfig(
                 name=str(field["name"]),
@@ -98,8 +113,13 @@ class ConfiguredProfileExtractor:
             required_fields=required_fields,
             extraction_policy=extraction_policy,
         )
-        records, errors = engine.crawl_sync([url])
-        return (
-            records[0] if records else None,
-            [str(error.get("error", "extraction failed")) for error in errors],
-        )
+        outcomes = engine.crawl_many_sync(urls)
+        return [
+            (
+                record,
+                [str(error.get("error", "extraction failed"))]
+                if error is not None
+                else [],
+            )
+            for record, error in outcomes
+        ]

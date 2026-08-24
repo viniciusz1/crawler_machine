@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from typing import Any
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
-from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher
+from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher, RateLimiter
 
 from crawler_machine.config import CrawlerConfig
 from crawler_machine.extraction.result import CrawlResult
@@ -17,7 +18,14 @@ class Crawl4AIBrowser:
         self._config = config
 
     async def fetch(self, url: str) -> CrawlResult:
-        """Executa fetch real usando Crawl4AI."""
+        """Executa fetch unitário sobre a implementação em lote."""
+        return (await self.fetch_many([url]))[0]
+
+    async def fetch_many(self, urls: list[str]) -> list[CrawlResult]:
+        """Coleta várias URLs com um único navegador e dispatcher."""
+        if not urls:
+            return []
+
         browser_config = BrowserConfig(
             headless=self._config.headless,
             viewport_width=1366,
@@ -34,25 +42,36 @@ class Crawl4AIBrowser:
             mean_delay=self._config.mean_delay,
             max_range=self._config.max_range,
             simulate_user=True,
+            stream=False,
         )
+        minimum_delay = max(0.0, self._config.mean_delay)
+        maximum_delay = minimum_delay + max(0.0, self._config.max_range)
         dispatcher = MemoryAdaptiveDispatcher(
             memory_threshold_percent=80.0,
-            max_session_permit=self._config.max_concurrent,
+            max_session_permit=max(1, self._config.max_concurrent),
+            rate_limiter=RateLimiter(
+                base_delay=(minimum_delay, maximum_delay),
+                max_retries=self._config.retry_attempts,
+            ),
         )
 
         async with AsyncWebCrawler(config=browser_config) as crawler:
-            result = await crawler.arun(
-                url=url,
+            results = await crawler.arun_many(
+                urls=urls,
                 config=crawler_config,
                 dispatcher=dispatcher,
             )
 
+        converted = [self._to_crawl_result(result) for result in results]
+        return self._align_with_requested_urls(urls, converted)
+
+    def _to_crawl_result(self, result: Any) -> CrawlResult:
         if not result.success:
             return CrawlResult(
                 url=result.url,
                 success=False,
                 data=[],
-                error=result.error_message,
+                error=getattr(result, "error_message", None),
             )
 
         return CrawlResult(
@@ -62,6 +81,30 @@ class Crawl4AIBrowser:
             html=getattr(result, "html", None),
             images=self._extract_images(result),
         )
+
+    @staticmethod
+    def _align_with_requested_urls(
+        urls: list[str],
+        results: list[CrawlResult],
+    ) -> list[CrawlResult]:
+        by_url: dict[str, deque[CrawlResult]] = defaultdict(deque)
+        for result in results:
+            by_url[result.url].append(result)
+
+        aligned: list[CrawlResult] = []
+        for url in urls:
+            if by_url[url]:
+                aligned.append(by_url[url].popleft())
+                continue
+            aligned.append(
+                CrawlResult(
+                    url=url,
+                    success=False,
+                    data=[],
+                    error="Crawl4AI returned no result for URL",
+                )
+            )
+        return aligned
 
     @staticmethod
     def _resolve_cache_mode(mode: str | None) -> CacheMode:

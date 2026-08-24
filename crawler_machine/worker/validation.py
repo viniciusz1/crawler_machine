@@ -44,13 +44,32 @@ class ProfileValidationExecutor:
         warnings: list[str] = []
         valid_count = 0
         extraction_policy = plan.get("extraction_policy")
+        batch_extract = getattr(self._extractor, "extract_many", None)
 
-        for url in urls:
-            raw_data, extraction_errors = (
-                self._extractor.extract(url, schemas, fields, extraction_policy)
+        if callable(batch_extract):
+            extracted_rows = (
+                batch_extract(urls, schemas, fields, extraction_policy)
                 if isinstance(extraction_policy, dict)
-                else self._extractor.extract(url, schemas, fields)
+                else batch_extract(urls, schemas, fields)
             )
+        else:
+            extracted_rows = [
+                (
+                    self._extractor.extract(url, schemas, fields, extraction_policy)
+                    if isinstance(extraction_policy, dict)
+                    else self._extractor.extract(url, schemas, fields)
+                )
+                for url in urls
+            ]
+
+        if len(extracted_rows) != len(urls):
+            raise RuntimeError("Profile extractor returned an invalid result count")
+
+        for url, (raw_data, extraction_errors) in zip(
+            urls,
+            extracted_rows,
+            strict=True,
+        ):
             field_presence = {
                 field: raw_data is not None and self._is_meaningful(raw_data.get(field))
                 for field in required_fields

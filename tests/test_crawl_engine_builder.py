@@ -30,6 +30,9 @@ class FakeHtmlCollector:
         self._html = html
         self.calls: list[str] = []
 
+    async def run_many(self, urls: list[str]) -> list[CrawlResult]:
+        return [await self.run(url) for url in urls]
+
     async def run(self, url: str) -> CrawlResult:
         self.calls.append(url)
         return CrawlResult(

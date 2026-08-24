@@ -38,6 +38,35 @@ class FakeExtractor:
         }, []
 
 
+class BatchExtractor:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def extract_many(
+        self,
+        urls: list[str],
+        schemas: dict[str, Any],
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
+    ) -> list[tuple[dict[str, Any] | None, list[str]]]:
+        self.calls.append(list(urls))
+        return [
+            (
+                {
+                    "url": url,
+                    "title": "House",
+                    "valor": "200000",
+                    "_extraction_trace": {"title": "xpath"},
+                },
+                [],
+            )
+            for url in urls
+        ]
+
+    def extract(self, *args, **kwargs):
+        raise AssertionError("the production crawl should use extract_many")
+
+
 class FakeNormalizer:
     def normalize(
         self,
@@ -197,6 +226,24 @@ def test_production_crawl_reports_processed_url_progress() -> None:
     )
 
     assert progress == [(1, 2), (2, 2)]
+
+
+def test_production_crawl_extracts_all_urls_in_one_batch() -> None:
+    extractor = BatchExtractor()
+    urls = [
+        "https://agency.example.com/property/1",
+        "https://agency.example.com/property/2",
+    ]
+
+    result = ProductionCrawlExecutor(
+        discoverer=FakeDiscoverer(),
+        extractor=extractor,
+        normalizer=FakeNormalizer(),
+    ).run(_plan({"mode": "existing", "snapshot_id": 5, "urls": urls}))
+
+    assert result["technical_state"] == "succeeded"
+    assert extractor.calls == [urls]
+    assert len(result["raw_properties"]) == 2
 
 
 def test_production_crawl_uses_the_approved_detail_url_shape() -> None:

@@ -22,6 +22,22 @@ class FakeExtractor:
         return record, []
 
 
+class BatchExtractor(FakeExtractor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[list[str]] = []
+
+    def extract_many(
+        self,
+        urls: list[str],
+        schemas: dict[str, Any],
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
+    ) -> list[tuple[dict[str, Any] | None, list[str]]]:
+        self.calls.append(list(urls))
+        return [self.extract(url, schemas, fields) for url in urls]
+
+
 class FakeNormalizer:
     def normalize(
         self,
@@ -117,3 +133,16 @@ def test_optional_normalization_warnings_do_not_invalidate_required_fields() -> 
     assert report["warnings"] == ["optional boolean was omitted"]
     assert report["records"][0]["is_valid"] is True
     assert report["eligible"] is True
+
+
+def test_validation_extracts_sample_urls_in_one_batch() -> None:
+    extractor = BatchExtractor()
+    plan = _plan(url_count=3)
+
+    report = ProfileValidationExecutor(
+        extractor=extractor,
+        normalizer=FakeNormalizer(),
+    ).run(plan)
+
+    assert report["sampled_url_count"] == 3
+    assert extractor.calls == [plan["urls"]]
