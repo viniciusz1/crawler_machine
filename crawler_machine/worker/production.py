@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
+from crawler_machine.image_policy import build_image_quality_metrics
 from crawler_machine.normalization.engine import DataNormalizer
 from crawler_machine.worker.validation import ProfileExtractor, RecordNormalizer
 
@@ -189,6 +190,10 @@ class ProductionCrawlExecutor:
 
         technical_state = "cancelled" if cancelled else ("failed" if fatal else "succeeded")
         publishable = technical_state == "succeeded" and bool(market_properties)
+        image_quality = build_image_quality_metrics(
+            (property_["payload"] for property_ in raw_properties),
+            (property_["payload"] for property_ in market_properties),
+        )
         technical_logs.append(
             {
                 "level": "error" if fatal else "info",
@@ -197,6 +202,15 @@ class ProductionCrawlExecutor:
                 "context": {"error_count": len(errors)},
             }
         )
+        if image_quality["suspicious_image_count"]:
+            technical_logs.append(
+                {
+                    "level": "warning",
+                    "stage": "quality",
+                    "message": "Suspicious property image URLs were rejected",
+                    "context": image_quality,
+                }
+            )
 
         return {
             "technical_state": technical_state,
@@ -216,7 +230,11 @@ class ProductionCrawlExecutor:
                         "normalized": len(market_properties),
                         "rejected": len(rejected_properties),
                     },
-                }
+                },
+                {
+                    "kind": "image_quality",
+                    "payload": image_quality,
+                },
             ],
             "technical_logs": technical_logs,
         }

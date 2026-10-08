@@ -30,6 +30,23 @@ Valor: R$ 450.000,00
 Área construída: 120 m²
 """
 
+ESKALA_TRACKING_HTML = """
+<html>
+<head>
+<meta property="og:image" content="https://img.apre.me/property-main.jpg" />
+</head>
+<body>
+<noscript>
+<img height="1" width="1"
+     src="https://www.facebook.com/tr?id=1669136687319144&amp;ev=PageView" />
+</noscript>
+<div class="fotorama">
+  <img class="fotorama__img" src="https://img.apre.me/property-thumb.jpg" />
+</div>
+</body>
+</html>
+"""
+
 
 class FakeMarkdownGenerator:
     def __init__(self, fit_markdown: str = MARKDOWN):
@@ -107,6 +124,71 @@ async def test_fit_markdown_regex_returns_empty_when_no_patterns_match(fields):
     assert result.success
     # imagem é extraída do HTML independentemente de regex
     assert result.data == [{"imagem": "https://example.com/img.jpg"}]
+
+
+@pytest.mark.anyio
+async def test_fit_markdown_regex_prefers_open_graph_image_over_tracking_pixel(fields):
+    strategy = FitMarkdownRegexStrategy(
+        fields=fields,
+        markdown_generator=FakeMarkdownGenerator("apenas texto sem dados"),
+    )
+    previous = CrawlResult(
+        url="https://eskalaimoveis.com.br/imovel/1",
+        success=True,
+        data=[],
+        html=ESKALA_TRACKING_HTML,
+    )
+
+    result = await strategy.extract(previous.url, previous)
+
+    assert result.data == [{"imagem": "https://img.apre.me/property-main.jpg"}]
+
+
+@pytest.mark.anyio
+async def test_fit_markdown_regex_prefers_rendered_gallery_over_generic_images(fields):
+    html = """
+    <html><body>
+      <img src="https://agency.example.com/assets/header.jpg" />
+      <div class="fotorama">
+        <img class="fotorama__img" src="https://cdn.example.com/property.jpg" />
+      </div>
+    </body></html>
+    """
+    strategy = FitMarkdownRegexStrategy(
+        fields=fields,
+        markdown_generator=FakeMarkdownGenerator("apenas texto sem dados"),
+    )
+    previous = CrawlResult(
+        url="https://agency.example.com/imovel/1",
+        success=True,
+        data=[],
+        html=html,
+    )
+
+    result = await strategy.extract(previous.url, previous)
+
+    assert result.data == [{"imagem": "https://cdn.example.com/property.jpg"}]
+
+
+@pytest.mark.anyio
+async def test_fit_markdown_regex_uses_collected_media_before_generic_images(fields):
+    strategy = FitMarkdownRegexStrategy(
+        fields=fields,
+        markdown_generator=FakeMarkdownGenerator("apenas texto sem dados"),
+    )
+    previous = CrawlResult(
+        url="https://agency.example.com/imovel/1",
+        success=True,
+        data=[],
+        html='<html><body><img src="https://agency.example.com/header.jpg" /></body></html>',
+        images=["https://cdn.example.com/collected-property.jpg"],
+    )
+
+    result = await strategy.extract(previous.url, previous)
+
+    assert result.data == [
+        {"imagem": "https://cdn.example.com/collected-property.jpg"}
+    ]
 
 
 @pytest.mark.anyio

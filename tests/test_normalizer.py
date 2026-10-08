@@ -107,3 +107,25 @@ def test_normalizer_normalize_many_records_and_returns_report(fields):
     assert normalized[1]["valor"] == 200_000.0
     assert report["total_records"] == 2
     assert report["records_with_issues"] == []
+
+
+def test_normalizer_reports_invalid_and_repeated_property_images():
+    records = [
+        {"imagem": "https://cdn.example.com/property.jpg"},
+        {"imagem": "https://cdn.example.com/property.jpg"},
+        {"imagem": "https://www.facebook.com/tr?id=123&ev=PageView"},
+    ]
+
+    _, report = DataNormalizer().normalize_many(records)
+
+    assert report["image_quality"] == {
+        "total_records": 3,
+        "supplied_image_count": 3,
+        "valid_image_count": 2,
+        "invalid_or_missing_count": 1,
+        "suspicious_image_count": 1,
+        "unique_image_count": 1,
+        "duplicate_image_count": 1,
+        "dominant_image_count": 2,
+        "dominant_image_ratio": 1.0,
+    }

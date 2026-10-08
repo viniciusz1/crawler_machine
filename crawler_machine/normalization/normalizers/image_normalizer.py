@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from crawler_machine.image_policy import is_suspicious_image_url
 from crawler_machine.normalization.result import NormalizationResult
 
 
@@ -28,6 +29,14 @@ class ImageNormalizer:
                 value=None,
                 is_valid=False,
                 warnings=[f"URL de imagem inválida: {text}"],
+                omitted=True,
+            )
+
+        if is_suspicious_image_url(text):
+            return NormalizationResult(
+                value=None,
+                is_valid=False,
+                warnings=["URL de imagem suspeita ou de rastreamento"],
                 omitted=True,
             )
 

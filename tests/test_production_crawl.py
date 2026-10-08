@@ -103,6 +103,19 @@ class PropertyTypeExtractor:
         return {"url": url, "tipo_imovel": self._property_type}, []
 
 
+class TrackingImageExtractor:
+    def extract(
+        self,
+        url: str,
+        schemas: dict[str, Any],
+        fields: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[str]]:
+        return {
+            "url": url,
+            "imagem": "https://www.facebook.com/tr?id=123&ev=PageView\n&noscript=1",
+        }, []
+
+
 def _property_type_normalizer() -> DataNormalizer:
     catalog = Catalog(
         cities={},
@@ -174,6 +187,37 @@ def test_production_crawl_rejects_unknown_required_property_type():
     assert result["market_properties"] == []
     assert result["rejected_properties"][0]["missing_fields"] == ["tipo_imovel"]
     assert result["publishable"] is False
+
+
+def test_production_crawl_rejects_tracking_pixel_as_required_image():
+    url = "https://agency.example.com/property/1"
+    plan = _plan(
+        {
+            "mode": "existing",
+            "snapshot_id": 5,
+            "urls": [url],
+        }
+    )
+    plan["market_data_contract"]["fields"] = [
+        {"name": "url", "required": True, "coerce": "string"},
+        {"name": "imagem", "required": True, "coerce": "string"},
+    ]
+
+    result = ProductionCrawlExecutor(
+        discoverer=FakeDiscoverer(),
+        extractor=TrackingImageExtractor(),
+    ).run(plan)
+
+    assert result["market_properties"] == []
+    assert result["rejected_properties"][0]["missing_fields"] == ["imagem"]
+    assert result["publishable"] is False
+    image_quality = next(
+        artifact["payload"]
+        for artifact in result["artifacts"]
+        if artifact["kind"] == "image_quality"
+    )
+    assert image_quality["suspicious_image_count"] == 1
+    assert image_quality["valid_image_count"] == 0
 
 
 def test_existing_snapshot_crawl_keeps_raw_normalized_rejected_and_trace() -> None:

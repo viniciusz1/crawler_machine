@@ -4,6 +4,7 @@ from typing import Any
 
 from crawler_machine.catalog import CatalogRepository
 from crawler_machine.config import FieldConfig
+from crawler_machine.image_policy import build_image_quality_metrics
 from crawler_machine.normalization.coercers import _COERCERS
 from crawler_machine.normalization.normalizers.area_normalizer import AreaNormalizer
 from crawler_machine.normalization.normalizers.city_normalizer import CityNormalizer
@@ -114,6 +115,7 @@ class DataNormalizer:
         report = {
             "total_records": len(records),
             "records_with_issues": records_with_issues,
+            "image_quality": build_image_quality_metrics(records, normalized_records),
             "strategy_usage": self._aggregate_strategy_usage(records),
             "llm_calls": self._count_llm_calls(records),
         }

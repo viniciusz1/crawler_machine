@@ -8,6 +8,7 @@ from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
 from crawler_machine.config import FieldConfig
+from crawler_machine.extraction.image_candidates import extract_property_image
 from crawler_machine.extraction.result import CrawlResult
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ class FitMarkdownRegexStrategy:
                 if value is not None:
                     record[field_name] = value
 
-        image = self._extract_first_image(previous.html)
+        image = self._extract_first_image(previous.html, previous.images)
         if image and "imagem" in self._fields and "imagem" not in present:
             record["imagem"] = image
 
@@ -128,12 +129,12 @@ class FitMarkdownRegexStrategy:
             return value.strip()
 
     @staticmethod
-    def _extract_first_image(html: str) -> str | None:
-        """Extrai a primeira URL de imagem do HTML."""
-        match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
-        if match:
-            return match.group(1)
-        return None
+    def _extract_first_image(
+        html: str,
+        collected_images: list[str] | None = None,
+    ) -> str | None:
+        """Extrai a imagem principal, ignorando pixels e elementos decorativos."""
+        return extract_property_image(html, collected_images or [])
 
     @staticmethod
     def _is_meaningful(value: Any) -> bool:

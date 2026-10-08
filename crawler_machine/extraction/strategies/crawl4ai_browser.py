@@ -7,6 +7,10 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 from crawl4ai.async_dispatcher import MemoryAdaptiveDispatcher, RateLimiter
 
 from crawler_machine.config import CrawlerConfig
+from crawler_machine.extraction.image_candidates import (
+    extract_property_image,
+    filter_image_candidates,
+)
 from crawler_machine.extraction.result import CrawlResult
 from crawler_machine.extraction.strategies._constants import _DEFAULT_USER_AGENT
 
@@ -129,4 +133,12 @@ class Crawl4AIBrowser:
                 src = image.get("src") or image.get("url")
                 if src:
                     images.append(src)
-        return images
+
+        images = filter_image_candidates(images)
+        main_image = extract_property_image(
+            getattr(result, "html", None) or "",
+            images,
+        )
+        if main_image is None:
+            return images
+        return [main_image, *(image for image in images if image != main_image)]

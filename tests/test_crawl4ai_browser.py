@@ -67,3 +67,28 @@ async def test_browser_uses_one_arun_many_call_and_preserves_input_order(
     assert call["dispatcher"].rate_limiter is not None
     assert [result.url for result in results] == urls
     assert results[0].images == [f"{urls[0]}/image.jpg"]
+
+
+def test_browser_prioritizes_property_metadata_and_discards_tracking_media():
+    result = SimpleNamespace(
+        html="""
+        <html>
+          <head>
+            <meta property="og:image" content="https://cdn.example.com/property.jpg" />
+          </head>
+          <body>
+            <img height="1" width="1"
+                 src="https://www.facebook.com/tr?id=123&amp;ev=PageView" />
+          </body>
+        </html>
+        """,
+        media={
+            "images": [
+                {"src": "https://www.facebook.com/tr?id=123&ev=PageView"},
+            ]
+        },
+    )
+
+    images = Crawl4AIBrowser._extract_images(result)
+
+    assert images == ["https://cdn.example.com/property.jpg"]
