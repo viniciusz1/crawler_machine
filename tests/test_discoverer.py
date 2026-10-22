@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from crawler_machine.discoverer import URLDiscoverer
+from crawler_machine.discovery import URLDiscoverer
 
 
 class FakeMapper:

@@ -11,7 +11,7 @@ import typer
 from crawler_machine.catalog import CatalogRepository
 from crawler_machine.cli.app import app
 from crawler_machine.cli.helpers import load_config, load_env_file, setup_logging
-from crawler_machine.discoverer import URLDiscoverer
+from crawler_machine.discovery import URLDiscoverer
 from crawler_machine.normalization.engine import DataNormalizer
 from crawler_machine.prospecting.places import GooglePlacesGateway
 from crawler_machine.sink.config import PostgresConfig

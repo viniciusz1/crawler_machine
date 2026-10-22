@@ -9,7 +9,7 @@ import typer
 
 from crawler_machine.cli.app import app
 from crawler_machine.cli.helpers import load_config, load_sink, make_output, setup_logging
-from crawler_machine.discoverer import URLDiscoverer
+from crawler_machine.discovery import URLDiscoverer
 
 
 @app.command()

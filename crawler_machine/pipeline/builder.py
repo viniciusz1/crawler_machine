@@ -6,7 +6,7 @@ from typing import Any
 from tqdm import tqdm
 
 from crawler_machine.config import DomainConfig
-from crawler_machine.discoverer import URLDiscoverer
+from crawler_machine.discovery import URLDiscoverer
 from crawler_machine.extraction.factory import build_crawl_engine
 from crawler_machine.output import OutputPath
 from crawler_machine.pipeline.core import Pipeline

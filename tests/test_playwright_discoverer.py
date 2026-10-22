@@ -3,7 +3,7 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
-from crawler_machine.playwright_discoverer import (
+from crawler_machine.discovery.items_catalog import (
     FakeListingBrowser,
     PlaywrightListingBrowser,
     PlaywrightListingDiscoverer,
