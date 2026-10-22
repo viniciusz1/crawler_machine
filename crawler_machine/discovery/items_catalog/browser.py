@@ -64,6 +64,20 @@ class _FakeListingBrowserSession:
         return False
 
 
+_BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
+_BLOCKED_TRACKING_DOMAINS = (
+    "google-analytics.com",
+    "googletagmanager.com",
+    "doubleclick.net",
+    "googleadservices.com",
+    "stape.io",
+    "facebook.net",
+    "connect.facebook.net",
+    "hotjar.com",
+    "clarity.ms",
+)
+
+
 class PlaywrightListingBrowser:
     """Implementação real de ``ListingBrowser`` usando ``playwright.async_api``."""
 
@@ -71,7 +85,7 @@ class PlaywrightListingBrowser:
         self,
         headless: bool = True,
         page_timeout_ms: int = 45000,
-        scroll_pause_ms: int = 350,
+        scroll_pause_ms: int = 180,
         max_scroll_steps: int = 12,
     ) -> None:
         self._headless = headless
@@ -93,6 +107,17 @@ class PlaywrightListingBrowser:
                     "Chrome/126.0.0.0 Safari/537.36"
                 ),
             )
+
+            async def _filter_route(route: Any) -> None:
+                req = route.request
+                if req.resource_type in _BLOCKED_RESOURCE_TYPES or any(
+                    domain in req.url for domain in _BLOCKED_TRACKING_DOMAINS
+                ):
+                    await route.abort()
+                else:
+                    await route.continue_()
+
+            await context.route("**/*", _filter_route)
             page = await context.new_page()
             page.set_default_timeout(self._page_timeout_ms)
             try:
@@ -110,7 +135,7 @@ class _PlaywrightListingBrowserSession:
     def __init__(
         self,
         page: Any,
-        scroll_pause_ms: int = 350,
+        scroll_pause_ms: int = 180,
         max_scroll_steps: int = 12,
     ) -> None:
         self._page = page
@@ -120,13 +145,12 @@ class _PlaywrightListingBrowserSession:
     async def goto(self, url: str) -> None:
         await self._page.goto(url, wait_until="domcontentloaded")
         try:
-            await self._page.wait_for_load_state("networkidle", timeout=4000)
+            await self._page.wait_for_load_state("load", timeout=4000)
         except Exception:
             pass
 
     async def scroll_to_bottom(self) -> list[str]:
         collected_hrefs: list[str] = []
-        previous_height = 0
         for _ in range(self._max_scroll_steps):
             hrefs, height = await self._page.evaluate(
                 """() => {
@@ -134,16 +158,16 @@ class _PlaywrightListingBrowserSession:
                         .filter(a => !a.closest('header, footer, nav'))
                         .map(a => a.getAttribute('href'))
                         .filter(Boolean);
-                    window.scrollTo(0, document.body.scrollHeight);
-                    return [links, document.body.scrollHeight || 0];
+                    const prevHeight = document.body.scrollHeight || 0;
+                    window.scrollTo(0, prevHeight);
+                    return [links, prevHeight];
                 }"""
             )
             collected_hrefs.extend(hrefs)
             await self._page.wait_for_timeout(self._scroll_pause_ms)
             new_height = await self._page.evaluate("() => document.body.scrollHeight || 0")
-            if new_height == height and height == previous_height:
+            if new_height <= height:
                 break
-            previous_height = new_height
         return collected_hrefs
 
     async def snapshot(self) -> PageSnapshot:
@@ -174,11 +198,13 @@ class _PlaywrightListingBrowserSession:
                     }
                     const rect = el.getBoundingClientRect();
                     const style = window.getComputedStyle(el);
+                    const isPagControl = el.matches(
+                        '.jetpagination__next, .list__next-btn, .PageNumber, .btn-paginacao, .BtnShowMoreImovel, [rel*="next" i]'
+                    );
                     const visible = (
-                        rect.width > 0 &&
-                        rect.height > 0 &&
                         style.visibility !== 'hidden' &&
-                        style.display !== 'none'
+                        style.display !== 'none' &&
+                        ((rect.width > 0 && rect.height > 0) || isPagControl)
                     );
                     if (visible) {
                         el.setAttribute('data-cm-control-id', `pw-${counter++}`);

@@ -172,7 +172,17 @@ class _DOMInspectorParser(HTMLParser):
         if attrs.get("aria-current", "").lower() in {"page", "true"}:
             return True
         classes = f" {attrs.get('class', '').lower()} "
-        return any(token in classes for token in (" active ", " current ", " selected ", " is-active "))
+        return any(
+            token in classes
+            for token in (
+                " active ",
+                " current ",
+                " selected ",
+                " is-active ",
+                "--active ",
+                "--current ",
+            )
+        )
 
     def _is_disabled_in_stack(self) -> bool:
         for tag, attrs in self._stack[-2:]:
