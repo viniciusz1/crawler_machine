@@ -171,6 +171,12 @@ Descobrir URLs:
 python -m crawler_machine discover https://imbsmart.com.br \
   --source-name imbsmart-com-br \
   --save-to-db
+
+# Usando a automação Playwright para percorrer a listagem e paginador (URL ou botão "Carregar mais"):
+python -m crawler_machine discover https://imbsmart.com.br \
+  --source-name imbsmart-com-br \
+  --playwright \
+  --save-to-db
 ```
 
 Gerar schema:

@@ -39,6 +39,7 @@ def build_pipeline(
     progress_bar: tqdm[Any] | None = None,
     enable_llm_fallback: bool | None = None,
     verbose: bool = False,
+    use_playwright_discovery: bool = False,
 ) -> Pipeline:
     """Constrói um Pipeline com a configuração e adapters padrão.
 
@@ -59,12 +60,18 @@ def build_pipeline(
             enable_llm_fallback=enable_llm_fallback,
         )
 
+    strategies = list(config.discovery.strategies or [])
+    if use_playwright_discovery and "playwright" not in [s.lower() for s in strategies]:
+        strategies.append("playwright")
+
     return Pipeline(
         config=config,
         output=output,
         discoverer=URLDiscoverer(
             max_urls=config.discovery.max_urls,
             listing_patterns=config.discovery.listing_patterns,
+            default_strategies=strategies or None,
+            max_pages=config.discovery.max_pages,
         ),
         schema_generator=SchemaGenerator(
             llm_config=config.llm,

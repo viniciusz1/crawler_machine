@@ -14,6 +14,8 @@ def test_discover_help_shows_save_to_db_option():
     assert result.exit_code == 0
     assert "--save-to-db" in result.output
     assert "--source-name" in result.output
+    assert "--playwright" in result.output
+    assert "--strategy" in result.output
 
 
 def test_run_help_shows_regenerate_flags():
@@ -23,6 +25,7 @@ def test_run_help_shows_regenerate_flags():
     assert "--regenerate-discovery" in result.output
     assert "--regenerate-schema" in result.output
     assert "--enable-llm-fallback" in result.output
+    assert "--playwright" in result.output
 
 
 def test_crawl_help_shows_enable_llm_fallback():

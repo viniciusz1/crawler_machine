@@ -234,3 +234,88 @@ def test_discoverer_keeps_sitemap_results_when_mapper_times_out():
     )
 
     assert urls == ["https://example.com/imovel/sitemap-1"]
+
+
+class FakePlaywrightDiscoverer:
+    def __init__(self, urls: list[str]):
+        self.urls = urls
+        self.calls: list[tuple[str, dict | None]] = []
+
+    async def discover(self, base_url: str, policy: dict | None = None) -> list[str]:
+        self.calls.append((base_url, policy))
+        return list(self.urls)
+
+
+class ExplodingMapper:
+    async def scan(self, url: str, **kwargs: object) -> list[dict]:
+        raise AssertionError("DomainMapper should not be called when only playwright is selected")
+
+
+def test_discoverer_uses_playwright_strategy_when_selected_in_policy():
+    pw_discoverer = FakePlaywrightDiscoverer([
+        "https://example.com/imovel/pw-1",
+        "https://example.com/imovel/pw-2",
+    ])
+    discoverer = URLDiscoverer(
+        mapper=ExplodingMapper(),
+        sitemap_fetcher=FakeSitemapFetcher(["https://example.com/imovel/sitemap-ignored"]),
+        playwright_discoverer=pw_discoverer,
+    )
+
+    urls = discoverer.discover_sync(
+        "https://example.com/imoveis",
+        {"strategies": ["playwright"], "configuration": {"max_urls": 10}},
+    )
+
+    assert urls == [
+        "https://example.com/imovel/pw-1",
+        "https://example.com/imovel/pw-2",
+    ]
+    assert len(pw_discoverer.calls) == 1
+    assert pw_discoverer.calls[0][0] == "https://example.com/imoveis"
+
+
+def test_discoverer_merges_playwright_and_sitemap_strategies_without_passing_playwright_to_domain_mapper():
+    class RecordingMapper(FakeMapper):
+        async def scan(self, url: str, **kwargs: object) -> list[dict]:
+            self.policy = kwargs
+            return self.results
+
+    mapper = RecordingMapper([{"url": "https://example.com/imovel/mapper-1"}])
+    pw_discoverer = FakePlaywrightDiscoverer([
+        "https://example.com/imovel/pw-1",
+        "https://example.com/imovel/sitemap-1",
+    ])
+    discoverer = URLDiscoverer(
+        mapper=mapper,
+        sitemap_fetcher=FakeSitemapFetcher(["https://example.com/imovel/sitemap-1"]),
+        playwright_discoverer=pw_discoverer,
+    )
+
+    urls = discoverer.discover_sync(
+        "https://example.com",
+        {"strategies": ["playwright", "sitemap"]},
+    )
+
+    assert urls == [
+        "https://example.com/imovel/mapper-1",
+        "https://example.com/imovel/sitemap-1",
+        "https://example.com/imovel/pw-1",
+    ]
+    assert mapper.policy == {"source": "sitemap"}
+
+
+def test_discoverer_uses_default_strategies_when_no_policy_is_passed():
+    pw_discoverer = FakePlaywrightDiscoverer(["https://example.com/imovel/pw-default"])
+    discoverer = URLDiscoverer(
+        mapper=ExplodingMapper(),
+        sitemap_fetcher=FakeSitemapFetcher([]),
+        playwright_discoverer=pw_discoverer,
+        default_strategies=["playwright"],
+    )
+
+    urls = discoverer.discover_sync("https://example.com/imoveis")
+
+    assert urls == ["https://example.com/imovel/pw-default"]
+
+
