@@ -18,19 +18,40 @@ _DEFAULT_PROPERTY_PATTERNS = [
     r"/imoveis/detalhes",
     r"/\d{3,}/?(?:\?.*)?$",
     r"/detalhes_(?:loc|vd)\.php\?imovel=\d+",
-    r"/(comprar|alugar|vender)/.+",
-    r"/(apartamento|casa|terreno|sobrado|sala-comercial|loft|chacara|rural|geminado|cobertura|kitnet|galpao|barrac[aã]o|loja|ponto-comercial)-",
+    r"/(?:comprar|alugar|vender)/[^/]+/\d+",
+    r"/(?:comprar|alugar|vender)/.+",
 ]
 
 _EXCLUDED_NON_PROPERTY_PATTERNS = [
-    r"/imoveis/?$",
-    r"/imovel/(comprar|alugar|vender|locacao|venda)/?$",
-    r"/(comprar|alugar|vender|locacao|venda)/?$",
+    r"^/imoveis/?$",
+    r"^/imoveis/(?:comprar|alugar|aluguel|vender|locacao|venda)/?$",
+    r"^/imovel/(?:comprar|alugar|aluguel|vender|locacao|venda)/?$",
+    r"^/(?:comprar|alugar|aluguel|vender|locacao|venda)/?$",
+    r"^/(?:venda|aluguel|locacao)/(?:imovel|apartamento|casa|terreno|cobertura|comercial|galpao)",
     r"/filtro/",
     r"cadastr",
     r"encomend",
     r"solicite",
     r"anuncie",
+    r"financi",
+    r"trabalhe-conosco",
+    r"ouvidoria",
+    r"nossa-equipe",
+    r"quem-somos",
+    r"conheca-a-cidade",
+    r"nossos-diferenciais",
+    r"nossos-profissionais",
+    r"como-alugar",
+    r"indice-de-reajuste",
+    r"assessoria-juridica",
+    r"quero-alugar-ou-vender",
+    r"area-do-cliente",
+    r"/whatsapp",
+    r"/blog(?:/|$)",
+    r"/corretores",
+    r"/institucional",
+    r"/documentos",
+    r"/condominios/?$",
     r"/busca/?$",
     r"/contato",
     r"/sobre",
@@ -41,13 +62,22 @@ _EXCLUDED_NON_PROPERTY_PATTERNS = [
     r"/politica",
     r"/privacidade",
     r"/termos",
+    r"todos-os-bairros",
+    r"todas-as-opcoes",
+    r"ordenacao=",
     r"(?:^|[?&])(pagina|page|pg|p)=\d+",
-    r"/(?:page|pagina)/\d+/?$",
+    r"(?:/|-|_)(?:page|pagina)(?:/|-|_)\d+/?$",
 ]
 
 _NEXT_TEXT_PATTERNS = re.compile(
     r"^(?:pr[oó]xim[ao](?:\s+p[aá]gina)?|seguinte|avan[cç]ar|next(?:\s+page)?|"
     r">|>>|»|›|→|pr[oó]xim[ao]\s*(?:>|>>|»|›|→))$",
+    re.IGNORECASE,
+)
+
+_EXPLICIT_NEXT_WORD_RE = re.compile(
+    r"^(?:pr[oó]xim[ao](?:\s+p[aá]gina)?|seguinte|next(?:\s+page)?|"
+    r"pr[oó]xim[ao]\s*(?:>|>>|»|›|→))$",
     re.IGNORECASE,
 )
 
@@ -60,28 +90,50 @@ _LOAD_MORE_TEXT_PATTERNS = re.compile(
 _VER_MAIS_EXACT_RE = re.compile(r"^(?:ver\s+mais|veja\s+mais)$", re.IGNORECASE)
 
 _PAGINATION_CONTAINER_RE = re.compile(
-    r"(?:paginat|paginacao|pagina[cç][aã]o|page-numbers|wp-pagenavi|nav-links|pager)",
+    r"(?:paginat|paginacao|pagina[cç][aã]o|page-numbers|wp-pagenavi|nav-links|pager|"
+    r"jetpagination|PageNumber|BtnShowMoreImovel|BoxBtnShowMoreImovel)",
+    re.IGNORECASE,
+)
+
+_PAGINATION_NEXT_CLASS_RE = re.compile(
+    r"(?:jetpagination__next|list__next-btn|page-next|next-page|pagination-next)",
+    re.IGNORECASE,
+)
+
+_NON_PAGINATION_CONTROL_RE = re.compile(
+    r"(?:owl-|slick-|swiper-|carousel|slider|banner|card-img|card-btn|modal|"
+    r"agendar|ag-data|cookie|whatsapp|wpp|primeiraPagina|ultimaPagina|"
+    r"first-page|last-page|previous|prev-btn|botao_tipo_busca)",
     re.IGNORECASE,
 )
 
 _LOAD_MORE_CLASS_RE = re.compile(
-    r"(?:load-more|loadmore|carregar-mais|btn-more|show-more|infinite-scroll)",
+    r"(?:load-more|loadmore|carregar-mais|btn-more|show-more|BtnShowMoreImovel|infinite-scroll)",
+    re.IGNORECASE,
+)
+
+_PROPERTY_CARD_LINK_CLASS_RE = re.compile(
+    r"(?:ImovelLinkClick|VejaMais|ui__card-link|meuLink|card-imovel|imovel-card|property-card)",
     re.IGNORECASE,
 )
 
 _PAGE_QUERY_KEYS = ("pagina", "page", "pg", "p")
-_PAGE_PATH_RE = re.compile(r"/(?:page|pagina)/(\d+)(?:/|$)", re.IGNORECASE)
+_PAGE_PATH_RE = re.compile(
+    r"(?:/|-|_)(?:page|pagina)(?:/|-|_)(\d+)(?:/|$)",
+    re.IGNORECASE,
+)
 
 _LISTING_ENTRYPOINT_PATH_RE = re.compile(
-    r"^/(?:imoveis|imovel/(?:comprar|alugar|vender|locacao|venda)|"
-    r"imoveis/(?:comprar|alugar|vender|locacao|venda|a-venda|para-alugar)|"
-    r"comprar|alugar|vender|locacao|venda|busca|buscar-imoveis)/?$",
+    r"^/(?:imoveis|imovel/(?:comprar|alugar|aluguel|vender|locacao|venda)|"
+    r"imoveis/(?:comprar|alugar|aluguel|vender|locacao|venda|a-venda|para-alugar)|"
+    r"comprar|alugar|aluguel|vender|locacao|venda|busca|buscar-imoveis)/?$",
     re.IGNORECASE,
 )
 
 _LISTING_ENTRYPOINT_TEXT_RE = re.compile(
     r"(?:ver\s+todos(?:\s+os)?\s+im[oó]veis|todos\s+os\s+im[oó]veis|"
     r"ver\s+mais\s+im[oó]veis|buscar\s+im[oó]veis|nossos\s+im[oó]veis|"
+    r"im[oó]veis\s+[aà]\s+venda|im[oó]veis\s+para\s+alugar|"
     r"^im[oó]veis$|^comprar$|^alugar$|^venda$|^loca[cç][aã]o$)",
     re.IGNORECASE,
 )
@@ -102,6 +154,7 @@ class PageControl:
     in_pagination: bool = False
     is_active: bool = False
     disabled: bool = False
+    in_chrome: bool = False
 
 
 @dataclass(frozen=True)
@@ -112,6 +165,7 @@ class PageSnapshot:
     html: str
     links: list[str] = field(default_factory=list)
     controls: list[PageControl] = field(default_factory=list)
+    card_links: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -144,6 +198,7 @@ class _DOMInspectorParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.links: list[str] = []
+        self.card_links: list[str] = []
         self.controls: list[PageControl] = []
         self._stack: list[tuple[str, dict[str, str]]] = []
         self._current_control: dict[str, Any] | None = None
@@ -157,7 +212,15 @@ class _DOMInspectorParser(HTMLParser):
         if tag_lower in {"a", "link"} and attr_map.get("href"):
             href = attr_map["href"].strip()
             if tag_lower == "a":
-                self.links.append(href)
+                in_chrome = self._in_chrome_context()
+                cls_str = attr_map.get("class", "")
+                if _PROPERTY_CARD_LINK_CLASS_RE.search(cls_str):
+                    self.card_links.append(href)
+                    self.links.append(href)
+                elif not in_chrome:
+                    self.links.append(href)
+                elif _LISTING_ENTRYPOINT_PATH_RE.match(urlparse(href).path or ""):
+                    self.links.append(href)
             elif "next" in attr_map.get("rel", "").lower():
                 self.controls.append(
                     PageControl(
@@ -171,13 +234,21 @@ class _DOMInspectorParser(HTMLParser):
                 )
                 self._control_counter += 1
 
+        has_pw_id = bool(attr_map.get("data-cm-control-id"))
+        cls_and_id = f"{attr_map.get('class', '')} {attr_map.get('id', '')}"
+        is_pagination_div = (
+            tag_lower in {"div", "span", "li"}
+            and bool(re.search(r"(?:btn-paginacao|PageNumber|page-numbers)", cls_and_id, re.IGNORECASE))
+        )
         is_interactive = (
-            tag_lower in {"a", "button"}
+            has_pw_id
+            or tag_lower in {"a", "button"}
             or attr_map.get("role", "").lower() == "button"
             or (
                 tag_lower == "input"
                 and attr_map.get("type", "").lower() in {"button", "submit"}
             )
+            or is_pagination_div
             or (
                 tag_lower == "span"
                 and self._is_active_attrs(attr_map)
@@ -199,6 +270,7 @@ class _DOMInspectorParser(HTMLParser):
                 "in_pagination": self._in_pagination_context(),
                 "is_active": self._is_active_in_stack(),
                 "disabled": self._is_disabled_in_stack(),
+                "in_chrome": self._in_chrome_context(),
             }
 
     def handle_data(self, data: str) -> None:
@@ -223,6 +295,7 @@ class _DOMInspectorParser(HTMLParser):
                     in_pagination=self._current_control["in_pagination"],
                     is_active=self._current_control["is_active"],
                     disabled=self._current_control["disabled"],
+                    in_chrome=self._current_control["in_chrome"],
                 )
             )
             self._current_control = None
@@ -234,10 +307,19 @@ class _DOMInspectorParser(HTMLParser):
 
     def _in_pagination_context(self) -> bool:
         for tag, attrs in self._stack:
-            if tag == "nav":
-                return True
             combined = f"{attrs.get('class', '')} {attrs.get('id', '')} {attrs.get('aria-label', '')} {attrs.get('role', '')}"
             if _PAGINATION_CONTAINER_RE.search(combined):
+                return True
+            if tag == "nav" and not re.search(r"(?:menu|header|top|navbar)", combined, re.IGNORECASE):
+                return True
+        return False
+
+    def _in_chrome_context(self) -> bool:
+        for tag, attrs in self._stack:
+            if tag in {"header", "footer", "nav"}:
+                return True
+            combined = f"{attrs.get('class', '')} {attrs.get('id', '')}"
+            if re.search(r"(?:^|\s|_|-)footer(?:\s|_|-|$)|box_link_mais_filtros", combined, re.IGNORECASE):
                 return True
         return False
 
@@ -247,11 +329,12 @@ class _DOMInspectorParser(HTMLParser):
             parent_tag, parent_attrs = self._stack[-2]
             if parent_tag in {"li", "span", "div"}:
                 classes.append(parent_attrs.get("class", ""))
+                classes.append(parent_attrs.get("id", ""))
         return " ".join(c for c in classes if c).strip()
 
     def _is_active_in_stack(self) -> bool:
         for tag, attrs in self._stack[-2:]:
-            if tag in {"a", "button", "li", "span"} and self._is_active_attrs(attrs):
+            if tag in {"a", "button", "li", "span", "div"} and self._is_active_attrs(attrs):
                 return True
         return False
 
@@ -264,11 +347,15 @@ class _DOMInspectorParser(HTMLParser):
 
     def _is_disabled_in_stack(self) -> bool:
         for tag, attrs in self._stack[-2:]:
-            if tag in {"a", "button", "li", "span", "input"}:
+            if tag in {"a", "button", "li", "span", "input", "div"}:
                 if "disabled" in attrs or attrs.get("aria-disabled", "").lower() == "true":
                     return True
                 classes = f" {attrs.get('class', '').lower()} "
-                if " disabled " in classes or " is-disabled " in classes:
+                if (
+                    " disabled " in classes
+                    or " is-disabled " in classes
+                    or "--disabled" in classes
+                ):
                     return True
         return False
 
@@ -284,6 +371,7 @@ def parse_page_snapshot(url: str, html: str) -> PageSnapshot:
         html=html,
         links=all_links,
         controls=parser.controls,
+        card_links=parser.card_links,
     )
 
 
@@ -354,11 +442,16 @@ class PlaywrightListingDiscoverer:
         self.max_urls = max_urls
         self.max_pages = max_pages
         self._custom_patterns = listing_patterns
-        self._property_patterns = (
-            _DEFAULT_PROPERTY_PATTERNS
-            if listing_patterns is None
-            else listing_patterns
-        )
+        if listing_patterns is None:
+            self._property_patterns = list(_DEFAULT_PROPERTY_PATTERNS)
+        elif len(listing_patterns) == 0:
+            self._property_patterns = []
+        else:
+            merged = list(listing_patterns)
+            for pattern in _DEFAULT_PROPERTY_PATTERNS:
+                if pattern not in merged:
+                    merged.append(pattern)
+            self._property_patterns = merged
 
     async def discover(
         self,
@@ -392,6 +485,7 @@ class PlaywrightListingDiscoverer:
 
                 await session.goto(entry_url)
                 current_page_num = 1
+                is_initial_entry = normalized_entry == self._normalize_url(base_url)
 
                 while len(discovered) < max_urls and pages_visited < max_pages:
                     pages_visited += 1
@@ -399,15 +493,37 @@ class PlaywrightListingDiscoverer:
                     snap = await session.snapshot()
                     visited_pages.add(self._normalize_url(snap.url))
 
+                    if is_initial_entry and current_page_num == 1:
+                        if self._is_property_url(snap.url, base_url, allow_entry=True):
+                            normalized_self = self._normalize_url(snap.url)
+                            if normalized_self not in seen_properties:
+                                seen_properties.add(normalized_self)
+                                discovered.append(normalized_self)
+
                     new_count = self._collect_property_urls(
                         snap.url,
-                        [*scroll_links, *snap.links],
+                        [*snap.card_links, *snap.links, *scroll_links],
+                        card_links=set(snap.card_links),
                         base_url=base_url,
                         include_subdomains=include_subdomains,
                         discovered=discovered,
                         seen=seen_properties,
                         max_urls=max_urls,
                     )
+
+                    if is_initial_entry and current_page_num == 1 and self._should_discover_entrypoints(snap.url, base_url):
+                        entrypoints = self._find_listing_entrypoints(
+                            snap,
+                            base_url=base_url,
+                            visited_pages=visited_pages,
+                            include_subdomains=include_subdomains,
+                        )
+                        for listing_url in entrypoints:
+                            if listing_url not in queue:
+                                queue.append(listing_url)
+
+                        if entrypoints or self._is_property_url(snap.url, base_url, allow_entry=True):
+                            break
 
                     active_page = self._detect_active_page_number(snap, current_page_num)
                     action = self._detect_pagination_action(
@@ -419,15 +535,6 @@ class PlaywrightListingDiscoverer:
                     )
 
                     if action is None:
-                        if current_page_num == 1 and self._normalize_url(entry_url) == self._normalize_url(base_url):
-                            for listing_url in self._find_listing_entrypoints(
-                                snap,
-                                base_url=base_url,
-                                visited_pages=visited_pages,
-                                include_subdomains=include_subdomains,
-                            ):
-                                if listing_url not in queue:
-                                    queue.append(listing_url)
                         break
 
                     if new_count == 0 and current_page_num > 1:
@@ -457,11 +564,18 @@ class PlaywrightListingDiscoverer:
         """Versão síncrona de ``discover``."""
         return asyncio.run(self.discover(base_url, policy))
 
+    def _should_discover_entrypoints(self, current_url: str, base_url: str) -> bool:
+        path = (urlparse(current_url).path or "/").rstrip("/")
+        if path == "":
+            return True
+        return self._is_property_url(current_url, base_url, allow_entry=True)
+
     def _collect_property_urls(
         self,
         page_url: str,
         raw_links: list[str],
         *,
+        card_links: set[str],
         base_url: str,
         include_subdomains: bool,
         discovered: list[str],
@@ -475,7 +589,8 @@ class PlaywrightListingDiscoverer:
             absolute = self._normalize_url(urljoin(page_url, raw_link))
             if not self._same_domain(absolute, base_url, include_subdomains=include_subdomains):
                 continue
-            if not self._is_property_url(absolute, base_url):
+            is_card = raw_link in card_links
+            if not self._is_property_url(absolute, base_url, is_card_link=is_card):
                 continue
             if absolute in seen:
                 continue
@@ -486,29 +601,44 @@ class PlaywrightListingDiscoverer:
                 break
         return added
 
-    def _is_property_url(self, url: str, base_url: str) -> bool:
+    def _is_property_url(
+        self,
+        url: str,
+        base_url: str,
+        *,
+        is_card_link: bool = False,
+        allow_entry: bool = False,
+    ) -> bool:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             return False
 
         path = parsed.path or "/"
-        normalized_base_path = urlparse(base_url).path.rstrip("/")
-        if path.rstrip("/") in {"", normalized_base_path}:
+        stripped_path = path.rstrip("/")
+        if stripped_path == "":
             return False
 
-        target = f"{path}?{parsed.query}" if parsed.query else path
+        if not allow_entry:
+            normalized_base_path = urlparse(base_url).path.rstrip("/")
+            if stripped_path == normalized_base_path:
+                return False
 
-        if self._custom_patterns is not None and len(self._custom_patterns) == 0:
-            return not any(
-                re.search(pattern, target, re.IGNORECASE)
-                for pattern in _EXCLUDED_NON_PROPERTY_PATTERNS
-            )
+        target = f"{path}?{parsed.query}" if parsed.query else path
 
         if any(
             re.search(pattern, target, re.IGNORECASE)
             for pattern in _EXCLUDED_NON_PROPERTY_PATTERNS
         ):
             return False
+
+        if _LISTING_ENTRYPOINT_PATH_RE.match(path):
+            return False
+
+        if self._custom_patterns is not None and len(self._custom_patterns) == 0:
+            return True
+
+        if is_card_link:
+            return True
 
         return any(
             re.search(pattern, target, re.IGNORECASE)
@@ -518,7 +648,10 @@ class PlaywrightListingDiscoverer:
     @staticmethod
     def _detect_active_page_number(snap: PageSnapshot, fallback: int) -> int:
         for ctrl in snap.controls:
-            if ctrl.is_active and ctrl.text.isdigit():
+            if ctrl.is_active and ctrl.in_pagination and ctrl.text.isdigit():
+                return int(ctrl.text)
+        for ctrl in snap.controls:
+            if ctrl.is_active and ctrl.text.isdigit() and not _NON_PAGINATION_CONTROL_RE.search(ctrl.classes):
                 return int(ctrl.text)
         parsed = urlparse(snap.url)
         query = parse_qs(parsed.query)
@@ -540,7 +673,7 @@ class PlaywrightListingDiscoverer:
         visited_pages: set[str],
         include_subdomains: bool,
     ) -> PaginationAction | None:
-        # 1. Verifica botão "Carregar mais" / "Ver mais imóveis"
+        # 1. Verifica botão "Carregar mais" / "Mostrar mais Imóveis"
         for ctrl in snap.controls:
             if ctrl.disabled:
                 continue
@@ -573,6 +706,8 @@ class PlaywrightListingDiscoverer:
     ) -> bool:
         if ctrl.tag == "link":
             return False
+        if _NON_PAGINATION_CONTROL_RE.search(ctrl.classes):
+            return False
         if ctrl.href and self._is_navigating_href(ctrl.href):
             resolved = self._normalize_url(urljoin(page_url, ctrl.href))
             if self._is_property_url(resolved, base_url):
@@ -582,10 +717,11 @@ class PlaywrightListingDiscoverer:
         if _LOAD_MORE_TEXT_PATTERNS.search(label):
             return True
 
+        if _LOAD_MORE_CLASS_RE.search(ctrl.classes):
+            return True
+
         if _VER_MAIS_EXACT_RE.match(ctrl.text.strip()):
             if ctrl.tag == "button" or not self._is_navigating_href(ctrl.href):
-                return True
-            if _LOAD_MORE_CLASS_RE.search(ctrl.classes):
                 return True
 
         return False
@@ -601,9 +737,11 @@ class PlaywrightListingDiscoverer:
     ) -> str | None:
         target_next_page = current_page + 1
 
-        # Prioridade 2a: rel="next" ou texto/aria-label explícito de "Próxima"
+        # Prioridade 2a: rel="next", classe explícita de next pagination ou texto "Próxima"
         for ctrl in snap.controls:
             if ctrl.disabled or not self._is_navigating_href(ctrl.href):
+                continue
+            if _NON_PAGINATION_CONTROL_RE.search(ctrl.classes):
                 continue
             candidate_url = self._normalize_url(urljoin(snap.url, ctrl.href or ""))
             if candidate_url in visited_pages:
@@ -616,6 +754,9 @@ class PlaywrightListingDiscoverer:
             if "next" in ctrl.rel.lower():
                 return candidate_url
 
+            if _PAGINATION_NEXT_CLASS_RE.search(ctrl.classes):
+                return candidate_url
+
             for candidate_label in (ctrl.text, ctrl.aria_label, ctrl.title):
                 cleaned = candidate_label.strip()
                 if cleaned and _NEXT_TEXT_PATTERNS.match(cleaned):
@@ -624,6 +765,8 @@ class PlaywrightListingDiscoverer:
         # Prioridade 2b: Link numérico para (current_page + 1) ou query/path de próxima página
         for ctrl in snap.controls:
             if ctrl.disabled or not self._is_navigating_href(ctrl.href):
+                continue
+            if _NON_PAGINATION_CONTROL_RE.search(ctrl.classes):
                 continue
             candidate_url = self._normalize_url(urljoin(snap.url, ctrl.href or ""))
             if candidate_url in visited_pages:
@@ -650,17 +793,34 @@ class PlaywrightListingDiscoverer:
         current_page: int,
     ) -> str | None:
         target_next_page = current_page + 1
+
+        # Prioridade 3a: Botão numérico para (current_page + 1) dentro de container de paginação
         for ctrl in snap.controls:
             if ctrl.disabled or ctrl.tag == "link":
                 continue
             if self._is_navigating_href(ctrl.href):
                 continue
-            for candidate_label in (ctrl.text, ctrl.aria_label, ctrl.title):
-                cleaned = candidate_label.strip()
-                if cleaned and _NEXT_TEXT_PATTERNS.match(cleaned):
-                    return ctrl.control_id
+            if _NON_PAGINATION_CONTROL_RE.search(ctrl.classes):
+                continue
             if ctrl.in_pagination and ctrl.text.strip() == str(target_next_page):
                 return ctrl.control_id
+
+        # Prioridade 3b: Botão de próxima página por texto/aria-label
+        for ctrl in snap.controls:
+            if ctrl.disabled or ctrl.tag == "link":
+                continue
+            if self._is_navigating_href(ctrl.href):
+                continue
+            if _NON_PAGINATION_CONTROL_RE.search(ctrl.classes):
+                continue
+            for candidate_label in (ctrl.text, ctrl.aria_label, ctrl.title):
+                cleaned = candidate_label.strip()
+                if not cleaned:
+                    continue
+                if _EXPLICIT_NEXT_WORD_RE.match(cleaned):
+                    return ctrl.control_id
+                if ctrl.in_pagination and _NEXT_TEXT_PATTERNS.match(cleaned):
+                    return ctrl.control_id
         return None
 
     def _find_listing_entrypoints(
@@ -673,12 +833,32 @@ class PlaywrightListingDiscoverer:
     ) -> list[str]:
         candidates: list[str] = []
         seen: set[str] = set()
+
+        def _add(url_str: str) -> None:
+            if url_str not in visited_pages and url_str not in seen:
+                seen.add(url_str)
+                candidates.append(url_str)
+
+        # 1. Links e controles com path canônico de listagem (/imoveis, /imoveis/venda, /venda, /aluguel, etc.)
+        all_hrefs = [
+            *(ctrl.href for ctrl in snap.controls if ctrl.href and not ctrl.disabled),
+            *snap.links,
+        ]
+        for raw_href in all_hrefs:
+            if not self._is_navigating_href(raw_href):
+                continue
+            candidate_url = self._normalize_url(urljoin(snap.url, raw_href))
+            if not self._same_domain(candidate_url, base_url, include_subdomains=include_subdomains):
+                continue
+            parsed = urlparse(candidate_url)
+            if _LISTING_ENTRYPOINT_PATH_RE.match(parsed.path or "/"):
+                _add(candidate_url)
+
+        # 2. Controles cujo texto indica entrada de catálogo ("Ver todos os imóveis", "Buscar imóveis", etc.)
         for ctrl in snap.controls:
             if ctrl.disabled or not self._is_navigating_href(ctrl.href):
                 continue
             candidate_url = self._normalize_url(urljoin(snap.url, ctrl.href or ""))
-            if candidate_url in visited_pages or candidate_url in seen:
-                continue
             if not self._same_domain(candidate_url, base_url, include_subdomains=include_subdomains):
                 continue
             if self._is_property_url(candidate_url, base_url):
@@ -686,15 +866,12 @@ class PlaywrightListingDiscoverer:
             parsed = urlparse(candidate_url)
             path = parsed.path or "/"
             label = f"{ctrl.text} {ctrl.aria_label} {ctrl.title}".strip()
-            if _LISTING_ENTRYPOINT_PATH_RE.match(path) or (
-                _LISTING_ENTRYPOINT_TEXT_RE.search(label)
-                and not any(
-                    re.search(p, path, re.IGNORECASE)
-                    for p in (r"/contato", r"/sobre", r"/empresa", r"/login", r"/admin", r"cadastr", r"anuncie")
-                )
+            if _LISTING_ENTRYPOINT_TEXT_RE.search(label) and not any(
+                re.search(p, path, re.IGNORECASE)
+                for p in (r"/contato", r"/sobre", r"/empresa", r"/login", r"/admin", r"cadastr", r"anuncie", r"/whatsapp")
             ):
-                seen.add(candidate_url)
-                candidates.append(candidate_url)
+                _add(candidate_url)
+
         return candidates
 
     @staticmethod
@@ -744,8 +921,8 @@ class PlaywrightListingBrowser:
         self,
         headless: bool = True,
         page_timeout_ms: int = 45000,
-        scroll_pause_ms: int = 400,
-        max_scroll_steps: int = 15,
+        scroll_pause_ms: int = 350,
+        max_scroll_steps: int = 12,
     ) -> None:
         self._headless = headless
         self._page_timeout_ms = page_timeout_ms
@@ -783,8 +960,8 @@ class _PlaywrightListingBrowserSession:
     def __init__(
         self,
         page: Any,
-        scroll_pause_ms: int = 400,
-        max_scroll_steps: int = 15,
+        scroll_pause_ms: int = 350,
+        max_scroll_steps: int = 12,
     ) -> None:
         self._page = page
         self._scroll_pause_ms = scroll_pause_ms
@@ -793,7 +970,7 @@ class _PlaywrightListingBrowserSession:
     async def goto(self, url: str) -> None:
         await self._page.goto(url, wait_until="domcontentloaded")
         try:
-            await self._page.wait_for_load_state("networkidle", timeout=5000)
+            await self._page.wait_for_load_state("networkidle", timeout=4000)
         except Exception:
             pass
 
@@ -804,6 +981,7 @@ class _PlaywrightListingBrowserSession:
             hrefs, height = await self._page.evaluate(
                 """() => {
                     const links = Array.from(document.querySelectorAll('a[href]'))
+                        .filter(a => !a.closest('header, footer, nav'))
                         .map(a => a.getAttribute('href'))
                         .filter(Boolean);
                     window.scrollTo(0, document.body.scrollHeight);
@@ -822,10 +1000,28 @@ class _PlaywrightListingBrowserSession:
         await self._page.evaluate(
             """() => {
                 let counter = 0;
-                const candidates = document.querySelectorAll(
-                    'a, button, [role="button"], input[type="button"], input[type="submit"]'
-                );
+                const selector = [
+                    'a',
+                    'button',
+                    '[role="button"]',
+                    'input[type="button"]',
+                    'input[type="submit"]',
+                    '.btn-paginacao',
+                    '.PageNumber',
+                    '.BtnShowMoreImovel',
+                    '[class*="load-more"]',
+                    '[class*="carregar-mais"]'
+                ].join(', ');
+                const candidates = document.querySelectorAll(selector);
                 for (const el of candidates) {
+                    const tag = el.tagName.toLowerCase();
+                    if (
+                        (tag === 'div' || tag === 'span' || tag === 'li') &&
+                        el.querySelector('a, button, .btn-paginacao')
+                    ) {
+                        el.removeAttribute('data-cm-control-id');
+                        continue;
+                    }
                     const rect = el.getBoundingClientRect();
                     const style = window.getComputedStyle(el);
                     const visible = (
@@ -856,12 +1052,21 @@ class _PlaywrightListingBrowserSession:
             html=snap.html,
             links=snap.links,
             controls=visible_controls,
+            card_links=snap.card_links,
         )
 
     async def click(self, control_id: str) -> bool:
         locator = self._page.locator(f'[data-cm-control-id="{control_id}"]').first
         if await locator.count() == 0:
             return False
+
+        before_sig = await self._page.evaluate(
+            """() => {
+                const links = Array.from(document.querySelectorAll('a[href]')).map(a => a.href);
+                return JSON.stringify([location.href, links.length, links[0] || '', links[links.length - 1] || '']);
+            }"""
+        )
+
         try:
             await locator.scroll_into_view_if_needed(timeout=3000)
         except Exception:
@@ -875,8 +1080,17 @@ class _PlaywrightListingBrowserSession:
                 return False
 
         try:
-            await self._page.wait_for_load_state("networkidle", timeout=5000)
+            await self._page.wait_for_function(
+                """(prevSig) => {
+                    const links = Array.from(document.querySelectorAll('a[href]')).map(a => a.href);
+                    const nowSig = JSON.stringify([location.href, links.length, links[0] || '', links[links.length - 1] || '']);
+                    return nowSig !== prevSig;
+                }""",
+                arg=before_sig,
+                timeout=6000,
+            )
         except Exception:
             pass
+
         await self._page.wait_for_timeout(self._scroll_pause_ms)
         return True

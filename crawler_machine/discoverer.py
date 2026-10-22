@@ -243,7 +243,7 @@ class URLDiscoverer:
                 base_url,
                 policy,
             )
-            results.extend({"url": url} for url in playwright_urls)
+            results.extend({"url": url, "trusted": True} for url in playwright_urls)
             logger.info(
                 "crawler_playwright_source_finished base_url=%s urls=%s",
                 base_url,
@@ -265,7 +265,11 @@ class URLDiscoverer:
             url = item.get("url")
             if not isinstance(url, str) or not url:
                 continue
-            if compiled and not any(pattern.search(url) for pattern in compiled):
+            if (
+                not item.get("trusted")
+                and compiled
+                and not any(pattern.search(url) for pattern in compiled)
+            ):
                 continue
             if url in seen:
                 continue

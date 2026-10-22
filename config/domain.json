@@ -25,8 +25,9 @@
     "max_urls": 5000,
     "listing_patterns": [
       "/imovel/",
-      "\\/(comprar|alugar|vender)\\/",
-      "\\/(apartamento|casa|terreno|sobrado|sala-comercial|loft|chacara|rural)-"
+      "/imovel-",
+      "/imoveis/detalhes",
+      "\\/(comprar|alugar|vender)\\/"
     ]
   },
   "fields": [

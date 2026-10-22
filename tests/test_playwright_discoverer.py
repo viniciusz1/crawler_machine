@@ -355,3 +355,186 @@ def test_real_playwright_browser_discovers_links_with_load_more_and_url_paginati
         server.server_close()
 
 
+def test_poderimoveis_style_submenu_listing_and_hyphen_page_pagination() -> None:
+    pages = {
+        "https://www.poderimoveis.com/?gad_source=1&gclid=abc": """
+            <html>
+              <body>
+                <header>
+                  <a href="/imoveis/locacao" class="jetnav__btn">Imóveis para Alugar</a>
+                  <a href="/imoveis/venda" class="jetnav__submenu-btn">Imóveis à Venda</a>
+                </header>
+                <div class="destaques">
+                  <a href="/imovel/terreno-centro-100?id=100">Destaque 100</a>
+                </div>
+              </body>
+            </html>
+        """,
+        "https://www.poderimoveis.com/imoveis/locacao": """
+            <html>
+              <body>
+                <a href="/imovel/sala-comercial-200?id=200">Sala 200</a>
+              </body>
+            </html>
+        """,
+        "https://www.poderimoveis.com/imoveis/venda": """
+            <html>
+              <body>
+                <a href="/imovel/casa-venda-300?id=300">Casa 300</a>
+                <div class="pagination">
+                  <a href="/imoveis/venda" class="jetpagination__num active">1</a>
+                  <a href="/imoveis/venda-pagina-2" class="jetpagination__num">2</a>
+                  <a href="/imoveis/venda-pagina-2" class="list__next-btn jetpagination__next"></a>
+                </div>
+              </body>
+            </html>
+        """,
+        "https://www.poderimoveis.com/imoveis/venda-pagina-2": """
+            <html>
+              <body>
+                <a href="/imovel/apartamento-venda-301?id=301">Apartamento 301</a>
+              </body>
+            </html>
+        """,
+    }
+    browser = FakeListingBrowser(pages)
+    discoverer = PlaywrightListingDiscoverer(browser=browser)
+
+    urls = discoverer.discover_sync("https://www.poderimoveis.com/?gad_source=1&gclid=abc")
+
+    assert urls == [
+        "https://www.poderimoveis.com/imovel/terreno-centro-100?id=100",
+        "https://www.poderimoveis.com/imovel/sala-comercial-200?id=200",
+        "https://www.poderimoveis.com/imovel/casa-venda-300?id=300",
+        "https://www.poderimoveis.com/imovel/apartamento-venda-301?id=301",
+    ]
+
+
+def test_itaivan_style_property_detail_seed_navigates_to_venda_and_div_paginator() -> None:
+    seed_url = "https://www.itaivan.com/imovel/terreno-a-venda-barra-do-rio-cerro-jaragua-do-sul-sc/14618"
+    venda_page_1 = """
+        <html>
+          <body>
+            <a href="/venda/apartamento/jaragua-do-sul/">Filtro Apartamentos</a>
+            <a href="/imoveis/favoritos">Favoritos</a>
+            <a href="/imovel/apartamento-centro-jaragua-do-sul/15001">Imóvel 15001</a>
+            <div id="wrap_paginacao">
+              <div class="btn-paginacao active"><span>1</span></div>
+              <div class="btn-paginacao"><span>2</span></div>
+              <div id="ultimaPagina" class="btn-paginacao"><span>›</span></div>
+            </div>
+          </body>
+        </html>
+    """
+    venda_page_2 = """
+        <html>
+          <body>
+            <a href="/imovel/casa-vila-nova-jaragua-do-sul/15002">Imóvel 15002</a>
+            <div id="wrap_paginacao">
+              <div class="btn-paginacao"><span>1</span></div>
+              <div class="btn-paginacao active"><span>2</span></div>
+            </div>
+          </body>
+        </html>
+    """
+    pages = {
+        seed_url: """
+            <html>
+              <body>
+                <header>
+                  <a href="/venda/">Comprar</a>
+                </header>
+                <button class="carousel-control-next">Next</button>
+                <button id="btn-ag-data-avancar">›</button>
+                <a href="/imovel/casa-semelhante/14999">Semelhante</a>
+              </body>
+            </html>
+        """,
+        "https://www.itaivan.com/venda/": venda_page_1,
+    }
+
+    def handle_click(url: str, control) -> str | None:
+        assert url == "https://www.itaivan.com/venda/"
+        assert control.text == "2"
+        return venda_page_2
+
+    browser = FakeListingBrowser(pages, on_click=handle_click)
+    discoverer = PlaywrightListingDiscoverer(browser=browser)
+
+    urls = discoverer.discover_sync(seed_url)
+
+    assert urls == [
+        seed_url,
+        "https://www.itaivan.com/imovel/casa-semelhante/14999",
+        "https://www.itaivan.com/imovel/apartamento-centro-jaragua-do-sul/15001",
+        "https://www.itaivan.com/imovel/casa-vila-nova-jaragua-do-sul/15002",
+    ]
+
+
+def test_imbsmart_style_root_slug_cards_and_mostrar_mais_ignoring_owl_and_footer() -> None:
+    home_html = """
+        <html>
+          <body>
+            <header>
+              <a href="https://imbsmart.com.br/imoveis">Buscar Imóveis</a>
+            </header>
+            <div class="owl-carousel">
+              <a class="ImovelLinkClick" href="https://imbsmart.com.br/casa-destaque-101">Destaque 101</a>
+              <button class="owl-next">›</button>
+            </div>
+            <footer>
+              <a href="https://imbsmart.com.br/apartamento-jaragua-do-sul">Apartamentos em Jaraguá</a>
+              <a href="https://imbsmart.com.br/whatsapp">WhatsApp</a>
+            </footer>
+          </body>
+        </html>
+    """
+    imoveis_batch_1 = """
+        <html>
+          <body>
+            <div id="ImovelLista">
+              <a class="ImovelLinkClick" href="https://imbsmart.com.br/casa-destaque-101">Destaque 101</a>
+              <a class="ImovelLinkClick" href="https://imbsmart.com.br/geminado-vila-lenzi-102">Geminado 102</a>
+            </div>
+            <button class="btn btn-primary BtnShowMoreImovel">
+              Mostrar mais Imóveis Restam 345 registros a ser mostrados
+            </button>
+            <footer>
+              <a href="https://imbsmart.com.br/apartamento-jaragua-do-sul">Apartamentos em Jaraguá</a>
+            </footer>
+          </body>
+        </html>
+    """
+    imoveis_batch_2 = """
+        <html>
+          <body>
+            <div id="ImovelLista">
+              <a class="ImovelLinkClick" href="https://imbsmart.com.br/casa-destaque-101">Destaque 101</a>
+              <a class="ImovelLinkClick" href="https://imbsmart.com.br/geminado-vila-lenzi-102">Geminado 102</a>
+              <a class="ImovelLinkClick" href="https://imbsmart.com.br/cobertura-centro-103">Cobertura 103</a>
+            </div>
+            <footer>
+              <a href="https://imbsmart.com.br/apartamento-jaragua-do-sul">Apartamentos em Jaraguá</a>
+            </footer>
+          </body>
+        </html>
+    """
+    browser = FakeListingBrowser(
+        {
+            "https://imbsmart.com.br/": home_html,
+            "https://imbsmart.com.br/imoveis": imoveis_batch_1,
+        },
+        on_click=lambda _url, _ctrl: imoveis_batch_2,
+    )
+    discoverer = PlaywrightListingDiscoverer(browser=browser)
+
+    urls = discoverer.discover_sync("https://imbsmart.com.br/")
+
+    assert urls == [
+        "https://imbsmart.com.br/casa-destaque-101",
+        "https://imbsmart.com.br/geminado-vila-lenzi-102",
+        "https://imbsmart.com.br/cobertura-centro-103",
+    ]
+
+
+
