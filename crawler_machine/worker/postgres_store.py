@@ -5,6 +5,7 @@ from typing import Any
 
 from psycopg2.extras import Json, execute_values
 
+from crawler_machine.diagnostics import DiagnosticEvent, safe_message
 from crawler_machine.sink.config import PostgresConfig
 from crawler_machine.sink.connection import connect
 from crawler_machine.worker.store import ClaimedOperation
@@ -81,7 +82,9 @@ class PostgresOperationStore:
 
         if row is None:
             return None
-        return ClaimedOperation(id=row[0], type=row[1], crawl_agency_id=row[2], plan=row[3])
+        return ClaimedOperation(
+            id=row[0], type=row[1], crawl_agency_id=row[2], plan=row[3]
+        )
 
     def heartbeat(
         self,
@@ -121,10 +124,70 @@ class PostgresOperationStore:
                               SELECT id FROM crawler.worker_instances WHERE worker_key = %s
                           )
                         """,
-                        (stage, percentage, processed, total, message, operation_id, worker_key),
+                        (
+                            stage,
+                            percentage,
+                            processed,
+                            total,
+                            message,
+                            operation_id,
+                            worker_key,
+                        ),
                     )
                     if cursor.rowcount != 1:
-                        raise RuntimeError("operation lease is no longer owned by this worker")
+                        raise RuntimeError(
+                            "operation lease is no longer owned by this worker"
+                        )
+
+    def record_diagnostic(
+        self, operation_id: int, worker_key: str, event: DiagnosticEvent
+    ) -> None:
+        """Commit evidence while this worker owns an unexpired operation lease."""
+        with connect(self._config) as connection:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT operation.id FROM crawler.operations operation
+                        JOIN crawler.worker_instances worker ON worker.id = operation.worker_instance_id
+                        WHERE operation.id = %s AND worker.worker_key = %s
+                          AND operation.state IN ('running', 'cancellation_requested')
+                          AND operation.lease_expires_at > NOW()
+                        FOR UPDATE OF operation
+                        """,
+                        (operation_id, worker_key),
+                    )
+                    if cursor.fetchone() is None:
+                        raise RuntimeError(
+                            "diagnostic operation lease is no longer owned"
+                        )
+                    cursor.execute(
+                        """
+                        INSERT INTO crawler.operation_diagnostics
+                            (event_id, operation_id, schema_version, kind, stage, url, strategy,
+                             outcome, duration_ms, error_code, message, fields_present, fields_missing,
+                             fallback, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (event_id, created_at) DO NOTHING
+                        """,
+                        (
+                            event.event_id,
+                            operation_id,
+                            event.schema_version,
+                            event.kind,
+                            event.stage,
+                            event.url,
+                            event.strategy,
+                            event.outcome,
+                            max(0, event.duration_ms),
+                            event.error_code,
+                            safe_message(event.message),
+                            Json(list(event.fields_present)),
+                            Json(list(event.fields_missing)),
+                            event.fallback,
+                            event.created_at,
+                        ),
+                    )
 
     def complete_discovery(
         self, operation_id: int, worker_key: str, urls: list[str]
@@ -150,7 +213,9 @@ class PostgresOperationStore:
                     )
                     row = cursor.fetchone()
                     if row is None:
-                        raise RuntimeError("operation is terminal or owned by another worker")
+                        raise RuntimeError(
+                            "operation is terminal or owned by another worker"
+                        )
 
                     cursor.execute(
                         """
@@ -231,7 +296,9 @@ class PostgresOperationStore:
                         (Json({"sample_url": sample_url}), operation_id, worker_key),
                     )
                     if cursor.rowcount != 1:
-                        raise RuntimeError("sample suggestion operation is no longer owned")
+                        raise RuntimeError(
+                            "sample suggestion operation is no longer owned"
+                        )
 
     def complete_profile(
         self, operation_id: int, worker_key: str, profile: dict[str, Any]
@@ -254,7 +321,9 @@ class PostgresOperationStore:
                     )
                     row = cursor.fetchone()
                     if row is None:
-                        raise RuntimeError("profile operation is terminal or owned by another worker")
+                        raise RuntimeError(
+                            "profile operation is terminal or owned by another worker"
+                        )
                     agency_id, plan = row
                     cursor.execute("SELECT pg_advisory_xact_lock(%s)", (agency_id,))
                     cursor.execute(
@@ -303,7 +372,9 @@ class PostgresOperationStore:
                         (Json({"extraction_profile_id": profile_id}), operation_id),
                     )
                     if cursor.rowcount != 1:
-                        raise RuntimeError("operation is terminal or owned by another worker")
+                        raise RuntimeError(
+                            "operation is terminal or owned by another worker"
+                        )
 
     def complete_validation(
         self, operation_id: int, worker_key: str, report: dict[str, Any]
@@ -326,7 +397,9 @@ class PostgresOperationStore:
                     )
                     row = cursor.fetchone()
                     if row is None:
-                        raise RuntimeError("validation operation is terminal or owned by another worker")
+                        raise RuntimeError(
+                            "validation operation is terminal or owned by another worker"
+                        )
                     plan = row[0]
 
                     cursor.execute(
@@ -420,13 +493,17 @@ class PostgresOperationStore:
                     )
                     row = cursor.fetchone()
                     if row is None:
-                        raise RuntimeError("production operation is terminal or owned by another worker")
+                        raise RuntimeError(
+                            "production operation is terminal or owned by another worker"
+                        )
                     agency_id, plan = row
                     discovery = result["discovery"]
                     snapshot_id = discovery.get("snapshot_id")
                     if discovery["mode"] == "fresh":
                         urls = list(dict.fromkeys(discovery.get("urls", [])))
-                        content_hash = hashlib.sha256("\n".join(urls).encode()).hexdigest()
+                        content_hash = hashlib.sha256(
+                            "\n".join(urls).encode()
+                        ).hexdigest()
                         cursor.execute(
                             """
                             INSERT INTO crawler.discovery_snapshots
@@ -445,7 +522,11 @@ class PostgresOperationStore:
                                 VALUES %s
                                 """,
                                 [
-                                    (snapshot_id, url, hashlib.sha256(url.encode()).hexdigest())
+                                    (
+                                        snapshot_id,
+                                        url,
+                                        hashlib.sha256(url.encode()).hexdigest(),
+                                    )
                                     for url in urls
                                 ],
                                 template="(%s, %s, %s, NOW())",
@@ -603,6 +684,15 @@ class PostgresOperationStore:
                             ),
                         )
 
+                    if result.get("diagnostics_version") == 1:
+                        cursor.execute(
+                            """
+                            INSERT INTO crawler.operation_diagnostics
+                                (event_id, operation_id, kind, stage, outcome, created_at)
+                            VALUES (gen_random_uuid(), %s, 'stage', 'persistence', 'completed', NOW())
+                            """,
+                            (operation_id,),
+                        )
                     operation_state = {
                         "succeeded": "succeeded",
                         "cancelled": "cancelled",
@@ -619,7 +709,9 @@ class PostgresOperationStore:
                         """,
                         (
                             operation_state,
-                            "completed" if operation_state == "succeeded" else operation_state,
+                            "completed"
+                            if operation_state == "succeeded"
+                            else operation_state,
                             len(result["raw_properties"]),
                             len(discovery.get("urls", [])),
                             "Production crawl persisted",
@@ -631,7 +723,9 @@ class PostgresOperationStore:
                                     "publication_state": "candidate",
                                 }
                             ),
-                            None if operation_state == "succeeded" else (
+                            None
+                            if operation_state == "succeeded"
+                            else (
                                 "cancelled_by_operator"
                                 if operation_state == "cancelled"
                                 else "partial_crawl"
@@ -847,8 +941,7 @@ class PostgresOperationStore:
                                 {
                                     "prospect_count": len(prospects),
                                     "candidate_count": candidate_count,
-                                    "rejected_count": len(prospects)
-                                    - candidate_count,
+                                    "rejected_count": len(prospects) - candidate_count,
                                 }
                             ),
                             operation_id,
@@ -892,11 +985,11 @@ class PostgresOperationStore:
                         (operation_id, worker_key),
                     )
                     if cursor.rowcount != 1:
-                        raise RuntimeError("operation is no longer cancellable by this worker")
+                        raise RuntimeError(
+                            "operation is no longer cancellable by this worker"
+                        )
 
-    def fail(
-        self, operation_id: int, worker_key: str, code: str, message: str
-    ) -> None:
+    def fail(self, operation_id: int, worker_key: str, code: str, message: str) -> None:
         with connect(self._config) as connection:
             with connection:
                 with connection.cursor() as cursor:

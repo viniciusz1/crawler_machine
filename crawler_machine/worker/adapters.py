@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from crawler_machine.diagnostics import DiagnosticObserver
 from crawler_machine.config import DomainConfig, FieldConfig, LLMConfig
 from crawler_machine.extraction.factory import build_crawl_engine
 from crawler_machine.prospecting.home_sample_finder import HomeSampleFinder
@@ -88,6 +89,7 @@ class ConfiguredProfileExtractor:
         schemas: dict[str, Any],
         fields: list[dict[str, Any]],
         extraction_policy: dict[str, Any] | None = None,
+        on_diagnostic: DiagnosticObserver | None = None,
     ) -> list[tuple[dict[str, Any] | None, list[str]]]:
         """Extrai um conjunto de URLs com uma única instância do engine."""
         field_config = [
@@ -113,7 +115,11 @@ class ConfiguredProfileExtractor:
             required_fields=required_fields,
             extraction_policy=extraction_policy,
         )
-        outcomes = engine.crawl_many_sync(urls)
+        outcomes = (
+            engine.crawl_many_sync(urls, on_diagnostic=on_diagnostic)
+            if on_diagnostic is not None
+            else engine.crawl_many_sync(urls)
+        )
         return [
             (
                 record,
@@ -123,3 +129,16 @@ class ConfiguredProfileExtractor:
             )
             for record, error in outcomes
         ]
+
+    def extract_many_observed(
+        self,
+        urls: list[str],
+        schemas: dict[str, Any],
+        fields: list[dict[str, Any]],
+        extraction_policy: dict[str, Any] | None = None,
+        on_diagnostic: DiagnosticObserver | None = None,
+    ) -> list[tuple[dict[str, Any] | None, list[str]]]:
+        """Extract with observations while keeping existing extractor callers compatible."""
+        return self.extract_many(
+            urls, schemas, fields, extraction_policy, on_diagnostic
+        )
