@@ -50,6 +50,11 @@ def run(
         "--enable-llm-fallback",
         help="Habilita fallback por LLM sobre HTML completo",
     ),
+    playwright: bool = typer.Option(
+        False,
+        "--playwright",
+        help="Usa automação Playwright na etapa de discovery para percorrer a listagem e paginador",
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Logs detalhados"),
 ) -> None:
     """Executa o pipeline completo."""
@@ -74,6 +79,7 @@ def run(
             sink=sink,
             source_name=source_name,
             enable_llm_fallback=enable_llm_fallback,
+            use_playwright_discovery=playwright,
         )
         result = pipeline.run_sync(
             base_url,

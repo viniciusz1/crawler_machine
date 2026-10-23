@@ -9,7 +9,7 @@ import typer
 
 from crawler_machine.cli.app import app
 from crawler_machine.cli.helpers import load_config, load_sink, make_output, setup_logging
-from crawler_machine.discoverer import URLDiscoverer
+from crawler_machine.discovery import URLDiscoverer
 
 
 @app.command()
@@ -27,15 +27,37 @@ def discover(
     save_to_db: bool = typer.Option(
         False, "--save-to-db", help="Persiste os resultados no Postgres"
     ),
+    playwright: bool = typer.Option(
+        False,
+        "--playwright",
+        help="Usa automação Playwright para navegar na listagem e paginar até acabar os imóveis",
+    ),
+    strategies: list[str] | None = typer.Option(
+        None,
+        "--strategy",
+        "-s",
+        help="Estratégia(s) de discovery a executar (ex: playwright, sitemap, homepage)",
+    ),
+    max_pages: int | None = typer.Option(
+        None,
+        "--max-pages",
+        help="Limite máximo de páginas na paginação via Playwright",
+    ),
 ) -> None:
     """Descobre URLs do site."""
     setup_logging()
     config = load_config(config_path)
     output = make_output(output_dir, base_url)
 
+    selected_strategies = list(strategies or config.discovery.strategies or [])
+    if playwright and "playwright" not in [s.lower() for s in selected_strategies]:
+        selected_strategies.append("playwright")
+
     discoverer = URLDiscoverer(
         max_urls=config.discovery.max_urls,
         listing_patterns=config.discovery.listing_patterns,
+        default_strategies=selected_strategies or None,
+        max_pages=max_pages if max_pages is not None else config.discovery.max_pages,
     )
     urls = discoverer.discover_sync(base_url)
 
