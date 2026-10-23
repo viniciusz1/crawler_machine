@@ -129,9 +129,7 @@ def _property_type_normalizer() -> DataNormalizer:
             }
         },
     )
-    return DataNormalizer(
-        property_type_catalog_repository=CatalogRepository(catalog)
-    )
+    return DataNormalizer(property_type_catalog_repository=CatalogRepository(catalog))
 
 
 def _plan(discovery: dict[str, Any]) -> dict[str, Any]:
@@ -323,9 +321,7 @@ def test_production_crawl_preserves_smart_currency_thousands() -> None:
     result = ProductionCrawlExecutor(
         discoverer=FakeDiscoverer(),
         extractor=SmartCurrencyExtractor(),
-    ).run(
-        _plan({"mode": "existing", "snapshot_id": 5, "urls": [url]})
-    )
+    ).run(_plan({"mode": "existing", "snapshot_id": 5, "urls": [url]}))
 
     assert result["raw_properties"][0]["payload"]["valor"] == "R$ 329.000"
     assert result["market_properties"][0]["payload"]["valor"] == 329_000.0
@@ -342,7 +338,9 @@ def test_fresh_crawl_discovers_urls_inside_the_operation() -> None:
     assert len(result["discovery"]["urls"]) == 2
 
 
-def test_fatal_failure_preserves_partial_rows_and_never_marks_them_publishable() -> None:
+def test_fatal_failure_preserves_partial_rows_and_never_marks_them_publishable() -> (
+    None
+):
     result = ProductionCrawlExecutor(
         discoverer=FakeDiscoverer(),
         extractor=FakeExtractor(fail_on="https://agency.example.com/property/2"),
@@ -367,7 +365,9 @@ def test_fatal_failure_preserves_partial_rows_and_never_marks_them_publishable()
     assert result["errors"][0]["message"] == "browser crashed"
 
 
-def test_cooperative_cancellation_stops_between_urls_and_preserves_partial_data() -> None:
+def test_cooperative_cancellation_stops_between_urls_and_preserves_partial_data() -> (
+    None
+):
     checks = iter([False, True])
     result = ProductionCrawlExecutor(
         discoverer=FakeDiscoverer(),
@@ -391,3 +391,42 @@ def test_cooperative_cancellation_stops_between_urls_and_preserves_partial_data(
     assert result["result_kind"] == "partial"
     assert result["publishable"] is False
     assert len(result["raw_properties"]) == 1
+
+
+def test_production_diagnostics_include_rejected_urls_in_field_coverage():
+    events = []
+    result = ProductionCrawlExecutor(
+        FakeDiscoverer(), FakeExtractor(), FakeNormalizer()
+    ).run(
+        _plan({"mode": "fresh", "base_url": "https://agency.example.com"}),
+        on_diagnostic=events.append,
+    )
+    terminal = [event for event in events if event.kind == "url_completed"]
+    assert len(terminal) == 2
+    assert [(event.outcome, event.fields_missing) for event in terminal] == [
+        ("succeeded", ()),
+        ("rejected", ("valor",)),
+    ]
+    assert len(result["market_properties"]) == 1
+    assert len(result["rejected_properties"]) == 1
+    assert result["errors"] == []
+
+
+def test_normalization_exception_preserves_raw_data_and_records_partial_failure():
+    class FailingNormalizer:
+        def normalize(self, record, fields):
+            raise ValueError("normalization failed")
+
+    events = []
+    result = ProductionCrawlExecutor(
+        FakeDiscoverer(), FakeExtractor(), FailingNormalizer()
+    ).run(
+        _plan({"mode": "fresh", "base_url": "https://agency.example.com"}),
+        on_diagnostic=events.append,
+    )
+    assert result["technical_state"] == "failed"
+    assert result["result_kind"] == "partial"
+    assert result["publishable"] is False
+    assert len(result["raw_properties"]) == 2
+    assert len(result["rejected_properties"]) == 2
+    assert any(event.error_code == "normalization_exception" for event in events)

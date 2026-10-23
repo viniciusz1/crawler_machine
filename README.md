@@ -271,3 +271,28 @@ crawler-machine/
 ├── requirements.txt
 └── CONTEXT.md
 ```
+
+
+## Diagnóstico de crawls de produção
+
+O worker publica observações versionadas em `crawler.operation_diagnostics` durante
+as operações: discovery, coleta, tentativas de estratégias, normalização e
+persistência. O contrato e as partições são mantidos pelas migrations do Laravel;
+aplique primeiro a API do PR viniciusz1/ia-imob#146. Não há novas variáveis de
+produção nem outro serviço de mensageria.
+
+As evidências são vinculadas à operação antes da criação do Crawl Run, preservando
+tentativas e falhas recuperadas por fallback. UUID e timestamp estáveis permitem
+entrega idempotente; somente o worker com lease vigente pode gravar. O engine usa
+callbacks opcionais e mantém o formato dos resultados existentes. A cobertura por
+campo inclui URLs rejeitadas; presença de campo não comprova exatidão semântica.
+
+A instrumentação não acrescenta tentativas recuperadas ao error_count usado pelo
+Portão de Qualidade. A interface de lotes e a avaliação/publicação pertencem ao
+Laravel. Agendamentos automáticos não são agrupados nesta entrega.
+
+Validação focada:
+
+```bash
+python3 -m pytest tests/test_extraction_engine.py tests/test_production_crawl.py tests/test_worker.py tests/test_worker_adapters.py
+```

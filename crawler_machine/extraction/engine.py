@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import perf_counter
 from typing import Any, Protocol
 
-from crawler_machine.config import REQUIRED_FIELDS, CrawlerConfig
+from crawler_machine.diagnostics import (
+    DiagnosticEvent,
+    DiagnosticObserver,
+    observe,
+    safe_message,
+)
+from crawler_machine.config import CrawlerConfig
+from crawler_machine.config import REQUIRED_FIELDS as REQUIRED_FIELDS
 from crawler_machine.extraction.result import CrawlResult
 from crawler_machine.extraction.strategy import ExtractionStrategy
 from crawler_machine.extraction.strategies.http_runner import HttpRunner
@@ -50,7 +58,9 @@ class CrawlEngine:
 
         return data, errors
 
-    async def crawl_many(self, urls: list[str]) -> list[CrawlOutcome]:
+    async def crawl_many(
+        self, urls: list[str], on_diagnostic: DiagnosticObserver | None = None
+    ) -> list[CrawlOutcome]:
         """Executa o crawl em lotes e preserva um resultado por URL."""
         if not urls:
             return []
@@ -62,26 +72,39 @@ class CrawlEngine:
             if index > 0 and self._config.chunk_delay > 0:
                 await asyncio.sleep(self._config.chunk_delay)
 
+            fetch_started = perf_counter()
             try:
                 fetched_results = await self._html_collector.run_many(chunk)
             except Exception as exc:  # pragma: no cover - adapter safety net
                 logger.exception("Batch HTML collection failed")
                 outcomes.extend(
-                    (None, {"url": url, "error": str(exc)}) for url in chunk
+                    self._fetch_failure(url, str(exc), on_diagnostic) for url in chunk
                 )
                 continue
 
             if len(fetched_results) != len(chunk):
                 error = "Batch HTML collection returned an invalid result count"
-                outcomes.extend((None, {"url": url, "error": error}) for url in chunk)
+                outcomes.extend(
+                    self._fetch_failure(url, error, on_diagnostic) for url in chunk
+                )
                 continue
 
+            observe(
+                on_diagnostic,
+                DiagnosticEvent(
+                    kind="stage",
+                    stage="fetch",
+                    outcome="completed",
+                    duration_ms=round((perf_counter() - fetch_started) * 1000),
+                ),
+            )
             chunk_outcomes = await asyncio.gather(
                 *(
                     self._extract_with_limit(
                         extraction_limit,
                         url,
                         fetched,
+                        on_diagnostic,
                     )
                     for url, fetched in zip(chunk, fetched_results, strict=True)
                 )
@@ -96,32 +119,61 @@ class CrawlEngine:
         """Versão síncrona de ``crawl``."""
         return asyncio.run(self.crawl(urls))
 
-    def crawl_many_sync(self, urls: list[str]) -> list[CrawlOutcome]:
+    def crawl_many_sync(
+        self, urls: list[str], on_diagnostic: DiagnosticObserver | None = None
+    ) -> list[CrawlOutcome]:
         """Versão síncrona de ``crawl_many``."""
-        return asyncio.run(self.crawl_many(urls))
+        return asyncio.run(self.crawl_many(urls, on_diagnostic=on_diagnostic))
 
     async def _extract_with_limit(
         self,
         semaphore: asyncio.Semaphore,
         url: str,
         fetched: CrawlResult,
+        on_diagnostic: DiagnosticObserver | None = None,
     ) -> CrawlOutcome:
         async with semaphore:
-            return await self._extract_fetched(url, fetched)
+            outcome = await self._extract_fetched(url, fetched, on_diagnostic)
+            record, error = outcome
+            present = tuple(
+                sorted(
+                    key
+                    for key, value in (record or {}).items()
+                    if not key.startswith("_") and self._is_meaningful(value)
+                )
+            )
+            observe(
+                on_diagnostic,
+                DiagnosticEvent(
+                    kind="extraction_completed",
+                    stage="extraction",
+                    outcome="succeeded" if record is not None else "failed",
+                    url=url,
+                    error_code="extraction_failed" if error else None,
+                    fields_present=present,
+                    fields_missing=tuple(sorted(self._required_fields - set(present))),
+                ),
+            )
+            return outcome
 
     async def _extract_fetched(
         self,
         url: str,
         fetched: CrawlResult,
+        on_diagnostic: DiagnosticObserver | None = None,
     ) -> CrawlOutcome:
         """Executa a cadeia de fallback sobre HTML já coletado."""
         if not fetched.success:
-            return None, {
-                "url": url,
-                "error": fetched.error or "HTML collection failed",
-            }
+            return self._fetch_failure(
+                url,
+                fetched.error or "HTML collection failed",
+                on_diagnostic,
+                terminal=False,
+            )
         if not fetched.html:
-            return None, {"url": url, "error": "HTML collection returned no HTML"}
+            return self._fetch_failure(
+                url, "HTML collection returned no HTML", on_diagnostic, terminal=False
+            )
 
         accumulated: dict[str, Any] = {}
         trace: dict[str, str] = {}
@@ -131,7 +183,9 @@ class CrawlEngine:
             accumulated["url"] = url
             trace["url"] = "url"
 
-        for strategy in self._strategies:
+        for strategy_index, strategy in enumerate(self._strategies):
+            attempt_started = perf_counter()
+            before = set(accumulated)
             previous = CrawlResult(
                 url=fetched.url,
                 success=True,
@@ -144,10 +198,38 @@ class CrawlEngine:
             except Exception as exc:  # pragma: no cover - safety net
                 logger.exception("Strategy %s failed for %s", strategy.name, url)
                 last_error = str(exc)
+                observe(
+                    on_diagnostic,
+                    DiagnosticEvent(
+                        kind="attempt",
+                        stage="extraction",
+                        outcome="failed",
+                        url=url,
+                        strategy=strategy.name,
+                        duration_ms=round((perf_counter() - attempt_started) * 1000),
+                        error_code="strategy_exception",
+                        message=safe_message(last_error),
+                        fallback=strategy_index > 0,
+                    ),
+                )
                 continue
 
             if not result.success:
                 last_error = result.error or f"{strategy.name} failed"
+                observe(
+                    on_diagnostic,
+                    DiagnosticEvent(
+                        kind="attempt",
+                        stage="extraction",
+                        outcome="failed",
+                        url=url,
+                        strategy=strategy.name,
+                        duration_ms=round((perf_counter() - attempt_started) * 1000),
+                        error_code="strategy_failed",
+                        message=safe_message(last_error),
+                        fallback=strategy_index > 0,
+                    ),
+                )
                 continue
 
             for record in result.data:
@@ -158,18 +240,67 @@ class CrawlEngine:
                             trace[key] = strategy.name
 
             present_fields = {
-                key
-                for key, value in accumulated.items()
-                if self._is_meaningful(value)
+                key for key, value in accumulated.items() if self._is_meaningful(value)
             }
+            provided = tuple(sorted(set(accumulated) - before))
+            observe(
+                on_diagnostic,
+                DiagnosticEvent(
+                    kind="attempt",
+                    stage="extraction",
+                    outcome="succeeded" if provided else "no_contribution",
+                    url=url,
+                    strategy=strategy.name,
+                    duration_ms=round((perf_counter() - attempt_started) * 1000),
+                    fields_present=provided,
+                    fields_missing=tuple(
+                        sorted(self._required_fields - present_fields)
+                    ),
+                    fallback=strategy_index > 0,
+                ),
+            )
             if self._required_fields.issubset(present_fields):
                 break
 
-        if not accumulated or (set(accumulated.keys()) == {"url"} and last_error is not None):
+        if not accumulated or (
+            set(accumulated.keys()) == {"url"} and last_error is not None
+        ):
             return None, {"url": url, "error": last_error or "no data extracted"}
 
         accumulated["_extraction_trace"] = trace
         return accumulated, None
+
+    def _fetch_failure(
+        self,
+        url: str,
+        error: str,
+        observer: DiagnosticObserver | None,
+        terminal: bool = True,
+    ) -> CrawlOutcome:
+        observe(
+            observer,
+            DiagnosticEvent(
+                kind="fetch",
+                stage="fetch",
+                outcome="failed",
+                url=url,
+                error_code="fetch_failed",
+                message=safe_message(error),
+            ),
+        )
+        if terminal:
+            observe(
+                observer,
+                DiagnosticEvent(
+                    kind="extraction_completed",
+                    stage="extraction",
+                    outcome="failed",
+                    url=url,
+                    error_code="fetch_failed",
+                    fields_missing=tuple(sorted(self._required_fields)),
+                ),
+            )
+        return None, {"url": url, "error": error}
 
     @staticmethod
     def _is_meaningful(value: Any) -> bool:

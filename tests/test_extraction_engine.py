@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from crawler_machine.config import CrawlerConfig, FieldConfig
+from crawler_machine.config import CrawlerConfig
 from crawler_machine.extraction.engine import CrawlEngine
 from crawler_machine.extraction.result import CrawlResult
 from crawler_machine.extraction.strategy import ExtractionStrategy
@@ -140,9 +140,7 @@ async def test_engine_runs_strategies_in_order_and_fills_missing_fields(crawler_
             "url": "https://example.com/1",
         }
     ]
-    assert strategy_b.calls[0][1].images == [
-        "https://example.com/1/image.jpg"
-    ]
+    assert strategy_b.calls[0][1].images == ["https://example.com/1/image.jpg"]
     assert collector.calls == ["https://example.com/1"]
 
 
@@ -245,12 +243,11 @@ async def test_engine_returns_partial_records_when_strategies_exhausted(crawler_
 @pytest.mark.anyio
 async def test_engine_chunks_urls_and_respects_delay(monkeypatch):
     sleeps: list[float] = []
+
     async def fake_sleep(delay: float) -> None:
         sleeps.append(delay)
 
-    monkeypatch.setattr(
-        "crawler_machine.extraction.engine.asyncio.sleep", fake_sleep
-    )
+    monkeypatch.setattr("crawler_machine.extraction.engine.asyncio.sleep", fake_sleep)
     config = CrawlerConfig(
         page_timeout=30000,
         max_concurrent=5,
@@ -260,7 +257,9 @@ async def test_engine_chunks_urls_and_respects_delay(monkeypatch):
     )
     strategy = FakeStrategy(
         "a",
-        returns={f"https://example.com/{i}": {"bairro": f"Bairro {i}"} for i in range(3)},
+        returns={
+            f"https://example.com/{i}": {"bairro": f"Bairro {i}"} for i in range(3)
+        },
     )
 
     collector = FakeHtmlCollector()
@@ -366,9 +365,7 @@ async def test_engine_stops_before_strategies_when_html_collection_fails(
     records, errors = await engine.crawl(["https://example.com/1"])
 
     assert records == []
-    assert errors == [
-        {"url": "https://example.com/1", "error": "browser failed"}
-    ]
+    assert errors == [{"url": "https://example.com/1", "error": "browser failed"}]
     assert strategy.calls == []
 
 
@@ -383,3 +380,29 @@ def test_required_fields_set_is_exposed():
     from crawler_machine.config import REQUIRED_FIELDS as DomainRequired
 
     assert set(DomainRequired) == REQUIRED_FIELDS
+
+
+def test_diagnostics_keep_recovered_attempts_without_changing_outcomes(crawler_config):
+    events = []
+    url = "https://example.com/observed"
+    engine = CrawlEngine(
+        config=crawler_config,
+        required_fields={"title"},
+        strategies=[
+            ErrorStrategy(),
+            FakeStrategy("css", returns={url: {"title": "House"}}),
+        ],
+        html_collector=FakeHtmlCollector(),
+    )
+    outcomes = engine.crawl_many_sync([url], on_diagnostic=events.append)
+    assert outcomes[0][0]["title"] == "House"
+    assert outcomes[0][1] is None
+    attempts = [event for event in events if event.kind == "attempt"]
+    assert [(event.strategy, event.outcome) for event in attempts] == [
+        ("error", "failed"),
+        ("css", "succeeded"),
+    ]
+    assert attempts[1].fallback is True
+    assert attempts[1].fields_present == ("title",)
+    assert attempts[0].error_code == "strategy_failed"
+    assert all(event.url == url and event.duration_ms >= 0 for event in attempts)
