@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from crawler_machine.prospecting.models import Candidate, EnrichedCandidate
+from crawler_machine.prospecting.models import Candidate
 
 
 HomeRequester = Callable[[str], "httpx.Response"]
@@ -250,22 +250,3 @@ class HomeSampleFinder:
                 score += 5
         return score
 
-
-class HomeSampleEnricher:
-    """Enriquece candidatos com ``sample_url`` via scraping da home."""
-
-    def __init__(self, finder: HomeSampleFinder | None = None) -> None:
-        self._finder = finder or HomeSampleFinder()
-
-    def enrich(self, candidates: list[Candidate]) -> list[EnrichedCandidate]:
-        enriched: list[EnrichedCandidate] = []
-        for candidate in candidates:
-            sample_url = self._finder.find(candidate)
-            enriched.append(
-                EnrichedCandidate(
-                    base_url=candidate.base_url or "",
-                    source_name=candidate.source_name or "",
-                    sample_url=sample_url,
-                )
-            )
-        return enriched
