@@ -410,3 +410,23 @@ def test_production_diagnostics_include_rejected_urls_in_field_coverage():
     assert len(result["market_properties"]) == 1
     assert len(result["rejected_properties"]) == 1
     assert result["errors"] == []
+
+
+def test_normalization_exception_preserves_raw_data_and_records_partial_failure():
+    class FailingNormalizer:
+        def normalize(self, record, fields):
+            raise ValueError("normalization failed")
+
+    events = []
+    result = ProductionCrawlExecutor(
+        FakeDiscoverer(), FakeExtractor(), FailingNormalizer()
+    ).run(
+        _plan({"mode": "fresh", "base_url": "https://agency.example.com"}),
+        on_diagnostic=events.append,
+    )
+    assert result["technical_state"] == "failed"
+    assert result["result_kind"] == "partial"
+    assert result["publishable"] is False
+    assert len(result["raw_properties"]) == 2
+    assert len(result["rejected_properties"]) == 2
+    assert any(event.error_code == "normalization_exception" for event in events)
