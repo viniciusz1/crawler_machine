@@ -165,7 +165,9 @@ class CatalogPaginator:
                 continue
 
             if ctrl.text.strip() == str(target_next_page) and (
-                ctrl.in_pagination or extract_url_page_number(candidate_url) == target_next_page
+                ctrl.in_pagination
+                or extract_url_page_number(candidate_url) == target_next_page
+                or urlparse(candidate_url).path.rstrip("/").endswith(f"/{target_next_page}")
             ):
                 return candidate_url
 

@@ -80,10 +80,30 @@ class _DOMInspectorParser(HTMLParser):
         if is_interactive and self._current_control is None:
             control_id = attr_map.get("data-cm-control-id") or f"ctrl-{self._control_counter}"
             self._control_counter += 1
+            if tag_lower == "input":
+                self.controls.append(
+                    PageControl(
+                        control_id=control_id,
+                        tag=tag_lower,
+                        text=attr_map.get("value", "").strip(),
+                        href=None,
+                        rel=attr_map.get("rel", ""),
+                        aria_label=attr_map.get("aria-label", ""),
+                        title=attr_map.get("title", ""),
+                        classes=self._combined_classes(attr_map),
+                        in_pagination=self._in_pagination_context(),
+                        is_active=self._is_active_in_stack(),
+                        disabled=self._is_disabled_in_stack(),
+                        in_chrome=self._in_chrome_context(),
+                    )
+                )
+                self._stack.pop()
+                return
             self._current_control = {
                 "control_id": control_id,
                 "tag": tag_lower,
-                "text_parts": [attr_map.get("value", "")] if tag_lower == "input" else [],
+                "stack_depth": len(self._stack),
+                "text_parts": [],
                 "href": attr_map.get("href") or None,
                 "rel": attr_map.get("rel", ""),
                 "aria_label": attr_map.get("aria-label", ""),
@@ -101,7 +121,21 @@ class _DOMInspectorParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag_lower = tag.lower()
-        if self._current_control is not None and self._current_control["tag"] == tag_lower:
+        popped_depth: int | None = None
+        for idx in range(len(self._stack) - 1, -1, -1):
+            if self._stack[idx][0] == tag_lower:
+                popped_depth = idx + 1
+                self._stack.pop(idx)
+                break
+
+        if (
+            self._current_control is not None
+            and self._current_control["tag"] == tag_lower
+            and (
+                popped_depth == self._current_control["stack_depth"]
+                or len(self._stack) < self._current_control["stack_depth"]
+            )
+        ):
             raw_text = " ".join(self._current_control["text_parts"])
             clean_text = re.sub(r"\s+", " ", html_lib.unescape(raw_text)).strip()
             self.controls.append(
@@ -121,11 +155,6 @@ class _DOMInspectorParser(HTMLParser):
                 )
             )
             self._current_control = None
-
-        for idx in range(len(self._stack) - 1, -1, -1):
-            if self._stack[idx][0] == tag_lower:
-                self._stack.pop(idx)
-                break
 
     def _in_pagination_context(self) -> bool:
         for tag, attrs in self._stack:

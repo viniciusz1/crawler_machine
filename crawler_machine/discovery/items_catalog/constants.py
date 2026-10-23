@@ -37,6 +37,8 @@ EXCLUDED_NON_PROPERTY_PATTERNS = [
     r"quero-alugar-ou-vender",
     r"area-do-cliente",
     r"/whatsapp",
+    r"/wa\.me/",
+    r"^/(?:inicio|home|index(?:\.php|\.html)?)/?$",
     r"/blog(?:/|$)",
     r"/corretores",
     r"/institucional",

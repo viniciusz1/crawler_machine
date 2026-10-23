@@ -537,4 +537,51 @@ def test_imbsmart_style_root_slug_cards_and_mostrar_mais_ignoring_owl_and_footer
     ]
 
 
+def test_imonov_style_inicio_redirect_void_input_and_filtro_pagination() -> None:
+    pages = {
+        "https://www.moradabrasil.com/inicio": """
+            <html>
+              <body>
+                <header>
+                  <a href="https://www.moradabrasil.com/filtro/venda/todos/1?ord=desc">Imóveis</a>
+                </header>
+                <a href="wa.me/554720204818">WhatsApp Relativo</a>
+                <a href="/imovel/venda/apartamento/1001">Destaque 1001</a>
+              </body>
+            </html>
+        """,
+        "https://www.moradabrasil.com/filtro/venda/todos/1?ord=desc": """
+            <html>
+              <body>
+                <form>
+                  <input type="submit" value="Buscar">
+                </form>
+                <a href="/imovel/venda/casa/1002">Casa 1002</a>
+                <div class="div-block-67">
+                  <a class="button-2 w-button" href="https://www.moradabrasil.com/filtro/venda/todos/2?ord=desc">2</a>
+                </div>
+              </body>
+            </html>
+        """,
+        "https://www.moradabrasil.com/filtro/venda/todos/2?ord=desc": """
+            <html>
+              <body>
+                <a href="/imovel/venda/terreno/1003">Terreno 1003</a>
+              </body>
+            </html>
+        """,
+    }
+    browser = FakeListingBrowser(pages)
+    discoverer = PlaywrightListingDiscoverer(browser=browser)
+
+    urls = discoverer.discover_sync("https://www.moradabrasil.com/inicio")
+
+    assert urls == [
+        "https://www.moradabrasil.com/imovel/venda/apartamento/1001",
+        "https://www.moradabrasil.com/imovel/venda/casa/1002",
+        "https://www.moradabrasil.com/imovel/venda/terreno/1003",
+    ]
+
+
+
 

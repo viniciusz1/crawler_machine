@@ -31,8 +31,8 @@ class URLClassifier:
             self.property_patterns = merged
 
     def should_discover_entrypoints(self, current_url: str, base_url: str) -> bool:
-        path = (urlparse(current_url).path or "/").rstrip("/")
-        if path == "":
+        path = (urlparse(current_url).path or "/").rstrip("/").lower()
+        if path in {"", "/inicio", "/home", "/index", "/index.php", "/index.html"}:
             return True
         return self.is_property_url(current_url, base_url, allow_entry=True)
 
