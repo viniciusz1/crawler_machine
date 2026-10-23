@@ -12,7 +12,6 @@ from crawler_machine.extraction.strategies import (
     LlmFullHtmlStrategy,
     XPathStrategy,
 )
-from crawler_machine.pipeline_helpers import detect_schema_type
 
 CANONICAL_EXTRACTION_STRATEGIES = (
     "xpath",
@@ -23,6 +22,22 @@ CANONICAL_EXTRACTION_STRATEGIES = (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def detect_schema_type(schema: dict[str, Any]) -> str:
+    """Detecta se o schema usa XPath ou CSS baseado nos seletores."""
+    selectors = [schema.get("baseSelector", "")]
+    for field in schema.get("fields", []):
+        if "selector" in field:
+            selectors.append(field["selector"])
+
+    if any(
+        isinstance(selector, str)
+        and (selector.startswith("//") or selector.startswith(".//"))
+        for selector in selectors
+    ):
+        return "XPATH"
+    return "CSS"
 
 
 def build_crawl_engine(
