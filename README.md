@@ -4,21 +4,16 @@ Sistema especializado em extrair dados de imobiliárias a partir da URL base de 
 
 ## Funcionamento
 
-O sistema executa quatro etapas sequenciais:
+O Crawler Machine roda como um **worker**. A Admin Area enfileira Operações do Crawler no Postgres; o worker reivindica cada operação, executa e grava o resultado de volta no banco. Não existem comandos de terminal para rodar etapas isoladas: toda execução passa pelo worker.
 
-1. **Discovery**: descobre URLs a partir da URL base usando `DomainMapper` do Crawl4AI.
-2. **Schema generation**: gera um schema de extração (XPath/CSS) com IA a partir de uma URL de exemplo.
-3. **Crawling**: extrai dados estruturados das URLs descobertas usando o schema gerado.
-4. **Normalization**: converte valores brutos em tipos úteis (`int`, `float`, `currency`, `string`).
+Tipos de operação executados pelo worker (`crawler_machine/worker/runner.py`):
 
-Cada etapa é representada por uma classe Python independente:
-
-- `URLDiscoverer`
-- `SchemaGenerator`
-- `ImovelCrawler`
-- `DataNormalizer`
-
-A orquestração é feita pela classe `Pipeline` e a interface terminal é fornecida pela CLI.
+- **Discovery**: descobre URLs de imóveis a partir da URL base (`URLDiscoverer`, com sitemap, `DomainMapper` do Crawl4AI e a estratégia Playwright de listagem/paginação).
+- **Sugestão de URL de exemplo**: encontra pela home uma página de imóvel individual (`HomeSampleFinder`).
+- **Geração de Perfil de Extração**: gera os schemas XPath/CSS com IA a partir da URL de exemplo (`SchemaGenerator`).
+- **Crawl de Validação**: valida um Perfil de Extração candidato (`ProfileValidationExecutor`).
+- **Crawl de produção**: extrai e normaliza os imóveis das URLs descobertas (`ProductionCrawlExecutor`, `CrawlEngine`, `DataNormalizer`).
+- **Prospecção**: busca imobiliárias candidatas em uma cidade via Google Places (`ProspectingExecutor`; requer `GOOGLE_PLACES_API_KEY`).
 
 ## Instalação
 
@@ -48,9 +43,11 @@ DB_USERNAME=crawler
 DB_PASSWORD=password
 ```
 
-> **A fonte de verdade dos dados do crawler é o Postgres.** Os artefatos JSON em `output/` ainda são gerados para debug, mas as URLs descobertas, schemas gerados, dados brutos e imóveis normalizados são lidos e gravados no banco (`discovery_runs`, `schema_runs`, `raw_properties`, `market_properties`).
+Para a prospecção, adicione também `GOOGLE_PLACES_API_KEY`. Sem ela, o worker sobe normalmente, mas não executa operações de prospecção.
 
-Os campos padrão a serem extraídos e as configurações globais de LLM/crawler continuam em `config/domain.json`, servindo de base para a geração de schemas. O `source_name` usado no banco deve ser escolhido de forma consistente para cada imobiliária.
+> **A fonte de verdade dos dados do crawler é o Postgres.** Operações, snapshots de discovery, perfis de extração, dados brutos, imóveis normalizados e artefatos são lidos e gravados no banco.
+
+Os campos padrão a serem extraídos e as configurações globais de LLM/crawler ficam em `config/domain.json` (passado ao worker via `--config`), servindo de base para a geração de schemas.
 
 ## Fluxo pela interface administrativa
 
@@ -77,139 +74,19 @@ O arquivo `.env` do Crawler Machine deve ter as variáveis `DB_*` configuradas p
 
 O andamento aparece em **Operações**. Ao concluir, use **Visualizar dados do crawl** ou consulte o snapshot na página da Crawl Agency. Se uma operação permanecer em `queued`, confirme que o worker está em execução e consegue acessar o banco.
 
-## Uso
-
-### Pipeline completo
-
-O comando `run` reutiliza URLs e schemas já salvos no banco quando `--source-name` já possui registros `latest`. Para forçar nova geração, use `--regenerate-discovery` e/ou `--regenerate-schema`.
+## Worker
 
 ```bash
-# Primeiro run: é necessário informar a URL de exemplo para gerar o schema
-python -m crawler_machine run https://imbsmart.com.br \
-  --source-name imbsmart-com-br \
-  --sample-url https://imbsmart.com.br/imovel/exemplo
-
-# Runs seguintes: reutiliza discovery e schema do banco
-python -m crawler_machine run https://imbsmart.com.br \
-  --source-name imbsmart-com-br
+python -m crawler_machine worker --worker-key local-dev --version dev
 ```
 
-`--source-name` é **obrigatório** em todos os comandos que persistem ou leem do banco.
+Opções:
 
-### Batch de imobiliárias
-
-O comando `clone-das-sombras` processa uma lista de imobiliárias definidas em um arquivo YAML. Cada item precisa de `base_url` e `source_name`; `sample_url` é obrigatório apenas na primeira execução, quando ainda não há schema/discovery cacheado no banco.
-
-```bash
-python -m crawler_machine clone-das-sombras imobiliarias.yaml
-```
-
-Exemplo de `imobiliarias.yaml`:
-
-```yaml
-- base_url: https://imbsmart.com.br
-  source_name: imbsmart-com-br
-  sample_url: https://imbsmart.com.br/imovel/exemplo
-- base_url: https://jaraguaimoveis.com.br
-  source_name: jaraguaimoveis-com-br
-  sample_url: https://jaraguaimoveis.com.br/imovel/exemplo
-```
-
-O processamento é sequencial e resiliente: se uma imobiliária falhar, o batch continua com as demais. Ao final, gera `output/batch_report_<timestamp>.json` com o status de cada imobiliária, além dos artefatos normais por imobiliária em `output/<slug>/<timestamp>/`.
-
-### Prospecção de imobiliárias
-
-O comando `prospecting find` busca imobiliárias candidatas em cidades via **Google Places API** — útil para descobrir alvos em cidades onde o sistema ainda não tem cobertura. Requer a variável `GOOGLE_PLACES_API_KEY` no `.env`.
-
-```bash
-python -m crawler_machine prospecting find \
-  --cities "Joinville,SC;Blumenau,SC" \
-  --max-per-city 30
-```
-
-A UF é obrigatória (para desambiguar homônimos). O resultado é um **YAML de candidatos para revisão humana** em `output/prospecting/candidatos_<timestamp>.yaml`, com cada entrada classificada como `candidate` ou `rejected` (`aggregator` / `no_website` / `duplicate_domain`).
-
-### Enriquecimento automático de sample_url
-
-O comando `prospecting enrich-samples-home` faz scraping da página inicial de cada imobiliária e extrai o primeiro link que parece uma página de imóvel individual.
-
-```bash
-python -m crawler_machine prospecting enrich-samples-home \
-  output/prospecting/20250712_120000/candidates.yaml
-```
-
-O comando gera `candidates.enriched.home.yaml` ao lado do arquivo de entrada. Ele aplica filtros para descartar URLs óbvias de listagens (`/imoveis/`, `/filtro/`, `?pagina=`, etc.) e formulários (`/cadastrar-imovel`, `/encomenda_imovel`, `/anuncie-seu-imovel`, etc.). Quando a home só contém esses tipos de link, o comando usa a URL do meio da lista como fallback — nesse caso o resultado pode ser uma listagem e deve ser revisado manualmente.
-
-Esse comando não consome API de busca externa. Revise o resultado antes de usá-lo para gerar um schema.
-
-Flags úteis:
-
-- `--dry-run`: mostra as home pages que seriam visitadas.
-- `--skip-existing`: preserva `sample_url` já preenchidas em uma execução anterior.
-- `--out <caminho>`: define um caminho de saída diferente.
-
-Exemplo de fluxo completo:
-
-```bash
-# 1. Prospecção
-python -m crawler_machine prospecting find --cities "Jaraguá do Sul,SC" --max-per-city 30
-
-# 2. Enriquecimento automático de sample_url (por home scraping)
-python -m crawler_machine prospecting enrich-samples-home \
-  output/prospecting/20250712_120000/candidates.yaml
-
-# 3. Batch
-python -m crawler_machine clone-das-sombras \
-  output/prospecting/20250712_120000/candidates.enriched.home.yaml
-```
-
-### Etapas isoladas
-
-Descobrir URLs:
-
-```bash
-python -m crawler_machine discover https://imbsmart.com.br \
-  --source-name imbsmart-com-br \
-  --save-to-db
-```
-
-Gerar schema:
-
-```bash
-python -m crawler_machine schema https://imbsmart.com.br/imovel/exemplo \
-  --source-name imbsmart-com-br \
-  --save-to-db
-```
-
-Crawlear usando arquivos JSON locais (não consulta o banco):
-
-```bash
-python -m crawler_machine crawl output/imbsmart-com-br/20260702_120000/schema.json \
-  output/imbsmart-com-br/20260702_120000/discovered.json
-```
-
-Normalizar dados brutos:
-
-```bash
-python -m crawler_machine normalize output/imbsmart-com-br/20260702_120000/raw.json
-```
-
-## Saída
-
-Os artefatos de cada execução são salvos em:
-
-```
-output/<slug-do-dominio>/<timestamp>/
-  discovered.json
-  schema.json
-  raw.json
-  normalized.json
-  rejected.json
-  quality_report.json
-  errors.json
-```
-
-O destino principal, no entanto, são as tabelas do Postgres gerenciadas externamente.
+- `--worker-key`: identidade estável do worker (padrão: hostname).
+- `--version`: versão implantada, registrada para observabilidade.
+- `--poll-seconds`: intervalo de espera quando a fila está vazia (padrão: `3.0`).
+- `--once`: processa no máximo uma operação e encerra.
+- `--config`: caminho do `domain.json` (padrão: `config/domain.json`).
 
 ## Testes
 
@@ -221,53 +98,25 @@ python -m pytest tests/ -v
 
 ```
 crawler-machine/
-├── src/
-│   ├── __init__.py
+├── crawler_machine/
 │   ├── __main__.py
-│   ├── cli.py
-│   ├── config.py
-│   ├── crawler.py
-│   ├── discoverer.py
-│   ├── output.py
-│   ├── pipeline.py
-│   ├── schema_generator.py
+│   ├── cli/                 # entrypoint Typer (comando `worker`)
+│   ├── worker/              # runner, store Postgres e executores de operação
+│   ├── discovery/           # URLDiscoverer, sitemap e Playwright (items_catalog/)
+│   ├── extraction/          # CrawlEngine e estratégias de extração
+│   ├── normalization/       # DataNormalizer e normalizadores por campo
+│   ├── prospecting/         # Google Places, filtros e HomeSampleFinder
+│   ├── sink/                # configuração e conexão Postgres
 │   ├── catalog.py
-│   ├── sink.py
-│   └── normalization/
-│       ├── __init__.py
-│       ├── result.py
-│       ├── protocol.py
-│       ├── engine.py
-│       ├── coercers.py
-│       ├── legacy.py
-│       └── normalizers/
-│           ├── area_normalizer.py
-│           ├── city_normalizer.py
-│           ├── details_normalizer.py
-│           ├── image_normalizer.py
-│           ├── integer_normalizer.py
-│           ├── neighborhood_normalizer.py
-│           ├── property_type_normalizer.py
-│           ├── url_normalizer.py
-│           ├── value_normalizer.py
-│           └── year_normalizer.py
+│   ├── config.py
+│   ├── image_policy.py
+│   └── schema_generator.py
 ├── config/
 │   └── domain.json
+├── docs/adr/
 ├── tests/
-│   ├── test_cli.py
-│   ├── test_config.py
-│   ├── test_crawler.py
-│   ├── test_data_normalizer_semantic.py
-│   ├── test_discoverer.py
-│   ├── test_normalizer.py
-│   ├── test_output.py
-│   ├── test_pipeline.py
-│   ├── test_schema_generator.py
-│   ├── catalog_seed.py
-│   ├── crawler_schema.py
-│   └── test_normalizers/
 ├── .env.example
+├── CONTEXT.md
 ├── README.md
-├── requirements.txt
-└── CONTEXT.md
+└── requirements.txt
 ```

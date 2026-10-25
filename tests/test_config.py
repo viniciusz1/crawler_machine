@@ -57,3 +57,38 @@ def test_load_config(sample_config: Path):
     assert config.fields[0] == FieldConfig(
         name="quartos", description="Número de quartos", coerce="int"
     )
+
+
+def test_load_config_with_discovery_strategies_and_max_pages(tmp_path: Path):
+    config_path = tmp_path / "domain_pw.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "provider": "deepseek/deepseek-v4-pro",
+                    "base_url": "https://api.deepseek.com",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                },
+                "crawler": {
+                    "page_timeout": 30000,
+                    "max_concurrent": 5,
+                    "chunk_size": 50,
+                    "chunk_delay": 2.0,
+                    "headless": True,
+                },
+                "discovery": {
+                    "max_urls": 1000,
+                    "max_pages": 50,
+                    "strategies": ["playwright"],
+                },
+                "fields": [],
+            }
+        )
+    )
+
+    config = ConfigLoader.load(config_path)
+
+    assert config.discovery.max_urls == 1000
+    assert config.discovery.max_pages == 50
+    assert config.discovery.strategies == ["playwright"]
+

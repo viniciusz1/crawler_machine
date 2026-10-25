@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded: o diretório `output/` deixou de existir com a remoção da CLI legada. Toda execução passa pelo worker e persiste no Postgres.
 
 ## Context
 
