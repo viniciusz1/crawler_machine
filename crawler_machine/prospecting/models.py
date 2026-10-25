@@ -1,23 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
-
-
-@dataclass(frozen=True)
-class CityTarget:
-    """Cidade-alvo de prospecção, informada manualmente pelo operador.
-
-    A UF é obrigatória para desambiguar homônimos (ex.: dezenas de
-    "São João" no Brasil).
-    """
-
-    name: str
-    state: str
-
-    @property
-    def label(self) -> str:
-        return f"{self.name}, {self.state}"
 
 
 @dataclass(frozen=True)
@@ -62,36 +46,3 @@ class Candidate:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-
-@dataclass(frozen=True)
-class EnrichedCandidate:
-    """Candidato enriquecido com uma ``sample_url`` descoberta."""
-
-    base_url: str
-    source_name: str
-    sample_url: str | None
-
-
-@dataclass(frozen=True)
-class Summary:
-    total: int
-    candidates: int
-    rejected: int
-
-
-@dataclass(frozen=True)
-class ProspectingResult:
-    """Resultado consolidado de uma execução de prospecção."""
-
-    query_cities: list[str]
-    candidates: list[Candidate]
-    summary: Summary
-    save_errors: list[str] = field(default_factory=list)
-
-    @property
-    def accepted(self) -> list[Candidate]:
-        return [c for c in self.candidates if c.status == "candidate"]
-
-    @property
-    def rejected(self) -> list[Candidate]:
-        return [c for c in self.candidates if c.status == "rejected"]
