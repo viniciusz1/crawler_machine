@@ -46,6 +46,8 @@ class CrawlerConfig:
 class DiscoveryConfig:
     max_urls: int
     listing_patterns: list[str] | None = None
+    max_pages: int = 100
+    strategies: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,8 @@ class ConfigLoader:
             discovery=DiscoveryConfig(
                 max_urls=discovery_data["max_urls"],
                 listing_patterns=discovery_data.get("listing_patterns"),
+                max_pages=discovery_data.get("max_pages", 100),
+                strategies=discovery_data.get("strategies"),
             ),
             fields=[
                 FieldConfig(
