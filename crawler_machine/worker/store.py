@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from crawler_machine.diagnostics import DiagnosticEvent
 from typing import Any, Protocol
 
 
@@ -30,6 +31,10 @@ class OperationStore(Protocol):
         processed: int,
         total: int,
         message: str,
+    ) -> None: ...
+
+    def record_diagnostic(
+        self, operation_id: int, worker_key: str, event: DiagnosticEvent
     ) -> None: ...
 
     def complete_discovery(

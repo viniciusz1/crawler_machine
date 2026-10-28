@@ -118,3 +118,11 @@ Sistema especializado em extrair dados de imobiliárias a partir da URL base de 
 - Perfis de Extração são versionados e imutáveis; novos perfis passam por validação antes da ativação, e cada operação preserva a versão utilizada.
 - Crawls de produção geram um novo Snapshot de Discovery por padrão; a interface pode reutilizar explicitamente um snapshot anterior, e retentativas da mesma operação preservam sua entrada original.
 - **Banco de dados é responsabilidade de quem opera o schema**: criação de schema, tabelas, migrations e seeders do crawler vivem fora deste repositório (tipicamente em um serviço backend ou sob gestão de DBA). O código Python não deve criar/modificar estruturas de banco em produção; helpers locais em `tests/` existem apenas para viabilizar testes unitários/integrados quando o ambiente de banco não está ativo.
+
+- **Lote de Produção**: Grupo de Operações de produção disparadas manualmente ou
+  por reexecução de outro lote. Preserva todas as Crawl Agencies solicitadas,
+  inclusive as ignoradas e seus motivos. O estado técnico de cada operação é
+  independente da aprovação de qualidade e publicação do Crawl Run.
+- **Observação de Diagnóstico**: evidência versionada e persistida durante uma
+  operação, por etapa, URL ou tentativa de estratégia. Preserva campos fornecidos,
+  ausências e falhas recuperadas, sem alterar o resultado da extração.

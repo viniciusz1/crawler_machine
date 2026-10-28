@@ -9,6 +9,8 @@ from typing import Any, Protocol
 
 from crawler_machine.worker.store import OperationStore
 
+from crawler_machine.diagnostics import DiagnosticEvent
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,14 +73,13 @@ class CrawlerWorker:
         self._production_crawl_executor = production_crawl_executor
         self._prospecting_executor = prospecting_executor
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
-        self._supported_types = ("discovery",) + (
-            ("sample_url_suggestion",) if sample_finder is not None else ()
-        ) + (("profile_generation",) if profile_generator is not None else ()) + (
-            ("profile_validation",) if validation_executor is not None else ()
-        ) + (
-            ("production_crawl",) if production_crawl_executor is not None else ()
-        ) + (
-            ("prospecting",) if prospecting_executor is not None else ()
+        self._supported_types = (
+            ("discovery",)
+            + (("sample_url_suggestion",) if sample_finder is not None else ())
+            + (("profile_generation",) if profile_generator is not None else ())
+            + (("profile_validation",) if validation_executor is not None else ())
+            + (("production_crawl",) if production_crawl_executor is not None else ())
+            + (("prospecting",) if prospecting_executor is not None else ())
         )
         self._store.register_worker(worker_key, version, {"concurrency": 1})
 
@@ -170,7 +171,9 @@ class CrawlerWorker:
                     return True
                 self._store.complete_validation(operation.id, self._worker_key, report)
                 status = "succeeded"
-            elif operation.type == "production_crawl" and self._production_crawl_executor:
+            elif (
+                operation.type == "production_crawl" and self._production_crawl_executor
+            ):
                 result = self._production_crawl_with_lease_renewal(
                     operation.id,
                     operation.plan,
@@ -360,6 +363,7 @@ class CrawlerWorker:
         stopped = Event()
         progress: dict[str, int | str] = {
             "percentage": 10,
+            "stage": "production_crawl",
             "processed": 0,
             "total": 0,
             "message": "Production crawl still running",
@@ -368,13 +372,25 @@ class CrawlerWorker:
         def report_progress(processed: int, total: int) -> None:
             bounded_processed = max(0, min(processed, total)) if total > 0 else 0
             percentage = (
-                min(90, 10 + round(80 * bounded_processed / total))
+                min(
+                    90,
+                    (70 if progress["stage"] == "normalization" else 10)
+                    + round(
+                        (
+                            20
+                            if progress["stage"] == "normalization"
+                            else (60 if progress["stage"] == "extraction" else 80)
+                        )
+                        * bounded_processed
+                        / total
+                    ),
+                )
                 if total > 0
                 else 10
             )
             message = f"Processed {bounded_processed} of {total} URLs"
             progress.update(
-                percentage=percentage,
+                percentage=max(int(progress["percentage"]), percentage),
                 processed=bounded_processed,
                 total=max(0, total),
                 message=message,
@@ -382,7 +398,7 @@ class CrawlerWorker:
             self._store.heartbeat(
                 operation_id,
                 self._worker_key,
-                "production_crawl",
+                str(progress["stage"]),
                 percentage,
                 bounded_processed,
                 max(0, total),
@@ -395,7 +411,7 @@ class CrawlerWorker:
                     self._store.heartbeat(
                         operation_id,
                         self._worker_key,
-                        "production_crawl",
+                        str(progress["stage"]),
                         int(progress["percentage"]),
                         int(progress["processed"]),
                         int(progress["total"]),
@@ -408,9 +424,28 @@ class CrawlerWorker:
                     )
                     return
 
+        def record_diagnostic(event: DiagnosticEvent) -> None:
+            self._store.record_diagnostic(operation_id, self._worker_key, event)
+            if event.kind == "stage" and event.outcome == "started":
+                progress["stage"] = event.stage
+                progress["processed"] = 0
+                progress["message"] = f"Stage: {event.stage}"
+
         heartbeat = Thread(target=renew_lease, daemon=True)
         heartbeat.start()
         try:
+            observed_run = getattr(
+                self._production_crawl_executor, "run_observed", None
+            )
+            if callable(observed_run):
+                return observed_run(
+                    plan,
+                    lambda: self._store.cancellation_requested(
+                        operation_id, self._worker_key
+                    ),
+                    report_progress,
+                    record_diagnostic,
+                )
             return self._production_crawl_executor.run(
                 plan,
                 lambda: self._store.cancellation_requested(
